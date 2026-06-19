@@ -5,69 +5,128 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="theme-color" content="#0b1e3b" />
+<meta name="theme-color" content="#7ec8ff" />
 <meta name="mobile-web-app-capable" content="yes" />
-<title>Sky Evolution</title>
+<title>Plane Evolution</title>
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
-    width: 100%; height: 100%; overflow: hidden;
-    background: #05101f;
+    width: 100%; height: 100%; overflow: hidden; position: fixed;
+    background: #7ec8ff;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     -webkit-user-select: none; user-select: none;
-    touch-action: none; overscroll-behavior: none;
-    position: fixed;
+    touch-action: none; overscroll-behavior: none; color: #fff;
   }
   #game { display: block; width: 100%; height: 100%; touch-action: none; }
+
   .overlay {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; text-align: center;
-    color: #fff; padding: 24px; gap: 18px; z-index: 10;
-    background: radial-gradient(120% 120% at 50% 30%, rgba(20,60,120,.55), rgba(5,16,31,.92));
-    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    padding: 22px calc(env(safe-area-inset-right) + 18px) calc(env(safe-area-inset-bottom) + 22px)
+             calc(env(safe-area-inset-left) + 18px);
+    gap: 16px; z-index: 10;
   }
   .hidden { display: none !important; }
-  h1 { font-size: clamp(34px, 11vw, 72px); letter-spacing: 1px; line-height: .95;
-       text-shadow: 0 4px 0 #0a2d5e, 0 0 24px rgba(90,170,255,.6); }
-  h1 .sub { display:block; font-size: .34em; letter-spacing: 6px; color:#8fc3ff; margin-top:8px; }
-  p { font-size: clamp(15px, 4.2vw, 19px); max-width: 460px; opacity: .92; line-height: 1.5; }
-  .tag { font-size: 13px; opacity:.6; letter-spacing:1px; }
+
+  h1 { font-size: clamp(34px, 11vw, 70px); line-height: .92; letter-spacing: 1px;
+       text-shadow: 0 4px 0 #2f6db0, 0 0 22px rgba(255,255,255,.35); }
+  h1 .sub { display:block; font-size: .3em; letter-spacing: 5px; color:#eaf6ff; margin-top:10px; }
+  p { font-size: clamp(14px, 4vw, 18px); max-width: 460px; opacity: .96; line-height: 1.5;
+      text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .tag { font-size: 13px; opacity:.85; }
+
   button {
-    font: inherit; font-weight: 700; font-size: clamp(18px, 5.4vw, 24px);
+    font: inherit; font-weight: 800; font-size: clamp(18px, 5.4vw, 24px);
     color: #06121f; background: linear-gradient(#ffe27a, #ffb43d);
-    border: none; border-radius: 999px; padding: 16px 46px; cursor: pointer;
-    box-shadow: 0 6px 0 #b8742a, 0 10px 24px rgba(0,0,0,.4);
+    border: none; border-radius: 999px; padding: 15px 44px; cursor: pointer;
+    box-shadow: 0 6px 0 #b8742a, 0 10px 24px rgba(0,0,0,.35);
     transition: transform .05s ease;
   }
-  button:active { transform: translateY(4px); box-shadow: 0 2px 0 #b8742a, 0 6px 16px rgba(0,0,0,.4); }
-  .stat { font-size: clamp(18px, 6vw, 28px); font-weight: 800; }
-  .stat span { color: #ffd454; }
-  .best { font-size: 15px; opacity:.8; }
-  .row { display:flex; gap: 26px; }
-  .row > div { display:flex; flex-direction:column; gap:2px; }
-  .row small { opacity:.6; font-size:12px; letter-spacing:1px; text-transform:uppercase; }
+  button:active { transform: translateY(4px); box-shadow: 0 2px 0 #b8742a, 0 6px 16px rgba(0,0,0,.35); }
+  button.secondary { background: linear-gradient(#dff0ff, #a9d4ff); color:#06121f; box-shadow: 0 6px 0 #5a8fc0, 0 10px 24px rgba(0,0,0,.3); }
+  button.secondary:active { box-shadow: 0 2px 0 #5a8fc0; }
+
+  /* translucent panels */
+  .panel {
+    width: 100%; max-width: 460px; background: rgba(10,30,60,.55);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.18); border-radius: 22px;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .coinsRow { display:flex; align-items:center; justify-content:center; gap:10px; font-weight:800; font-size: clamp(22px,6.5vw,30px); }
+  .coin { width: 1em; height: 1em; border-radius:50%; background:radial-gradient(circle at 35% 30%, #fff6c4, #ffcf3a 60%, #e0a31e);
+          box-shadow: inset 0 0 0 2px #b8821a; display:inline-block; }
+
+  .shop { display:flex; flex-direction:column; gap:9px; width:100%; max-width:460px; }
+  .up {
+    display:flex; align-items:center; gap:12px; text-align:left;
+    background: rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16);
+    border-radius:16px; padding:10px 12px;
+  }
+  .up .ico { font-size: 26px; width: 34px; text-align:center; }
+  .up .info { flex:1; min-width:0; }
+  .up .name { font-weight:800; font-size: 15px; }
+  .up .pips { display:flex; gap:3px; margin-top:5px; }
+  .up .pip { flex:1; height:6px; border-radius:3px; background: rgba(255,255,255,.2); }
+  .up .pip.on { background: linear-gradient(90deg,#7dffb0,#39d6ff); }
+  .up .buy {
+    font-weight:800; font-size:14px; color:#06121f; white-space:nowrap;
+    background: linear-gradient(#ffe27a,#ffb43d); border:none; border-radius:999px;
+    padding:9px 14px; box-shadow:0 4px 0 #b8742a; min-width: 84px;
+  }
+  .up .buy:disabled { background:#6f86a5; color:#c9d6e6; box-shadow:0 4px 0 #4d617c; opacity:.7; }
+  .up .buy:active:not(:disabled) { transform: translateY(3px); box-shadow:0 1px 0 #b8742a; }
+  .up .buy .c { display:inline-flex; align-items:center; gap:4px; }
+  .up .buy .coin { width:13px; height:13px; }
+  .up.maxed .buy { background:#7dffb0; color:#06311c; box-shadow:0 4px 0 #3aa56b; }
+
+  .evoBadge { font-size:13px; letter-spacing:1px; opacity:.95; text-transform:uppercase; }
+  .row2 { display:flex; gap:14px; align-items:center; }
+  .scroll { width:100%; max-width:460px; overflow-y:auto; max-height: 46vh; -webkit-overflow-scrolling: touch;
+            display:flex; flex-direction:column; gap:9px; padding: 2px; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
-<div id="startScreen" class="overlay">
-  <h1>SKY<br>EVOLUTION<span class="sub">FLY · FIGHT · EVOLVE</span></h1>
-  <p>Drag anywhere to fly your plane. It fires on its own. Smash enemies to collect glowing <b>evolution orbs</b> — fill the bar to morph into a deadlier aircraft!</p>
-  <button id="startBtn">TAP TO FLY</button>
-  <p class="tag">Best evolution reached: <span id="bestStart">1</span></p>
+<!-- Title -->
+<div id="titleScreen" class="overlay">
+  <h1>PLANE<br>EVOLUTION<span class="sub">LAUNCH · GLIDE · UPGRADE</span></h1>
+  <p>Sling your plane off the ramp and fly as far as you can. Tap &amp; hold to <b>boost</b>, skim the hills to keep your speed, and grab coins to upgrade &amp; <b>evolve</b> your aircraft.</p>
+  <button id="playBtn">START</button>
+  <p class="tag">Best distance: <span id="bestTitle">0</span> m</p>
 </div>
 
-<div id="gameOverScreen" class="overlay hidden">
-  <h1 style="font-size:clamp(30px,9vw,60px)">SHOT DOWN</h1>
-  <div class="row">
-    <div><small>Score</small><div class="stat"><span id="finalScore">0</span></div></div>
-    <div><small>Evolution</small><div class="stat"><span id="finalEvo">1</span></div></div>
+<!-- Hangar / shop -->
+<div id="hangarScreen" class="overlay hidden">
+  <div class="evoBadge">Tier <span id="evoTier">1</span> · <span id="evoName">Paper Glider</span></div>
+  <div class="coinsRow"><span class="coin"></span><span id="coinCount">0</span></div>
+  <div class="scroll" id="shop"></div>
+  <button id="launchBtn">LAUNCH ✈</button>
+  <p class="tag">Best distance: <span id="bestHangar">0</span> m</p>
+</div>
+
+<!-- Results -->
+<div id="resultScreen" class="overlay hidden">
+  <h1 style="font-size:clamp(28px,8vw,52px)">LANDED!</h1>
+  <div class="panel">
+    <div class="row2" style="justify-content:space-between">
+      <span>Distance</span><b style="font-size:22px"><span id="runDist">0</span> m</b>
+    </div>
+    <div class="row2" style="justify-content:space-between">
+      <span>Coins earned</span><b style="font-size:22px;color:#ffe27a"><span class="coin"></span> <span id="runCoins">0</span></b>
+    </div>
+    <div class="row2" style="justify-content:space-between;opacity:.85;font-size:14px">
+      <span>Best distance</span><span><span id="runBest">0</span> m</span>
+    </div>
   </div>
-  <p class="best">Best score: <span id="bestScore">0</span> · Best evolution: <span id="bestEvo">1</span></p>
-  <button id="restartBtn">FLY AGAIN</button>
+  <div id="evoNotice" class="evoBadge hidden">⭐ EVOLVED — <span id="evoNoticeName"></span>!</div>
+  <div class="row2">
+    <button id="shopBtn" class="secondary">UPGRADE</button>
+    <button id="againBtn">LAUNCH ✈</button>
+  </div>
 </div>
 
 <script src="game.js"></script>

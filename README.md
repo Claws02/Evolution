@@ -1,44 +1,41 @@
-# Sky Evolution 🛩️
+# Plane Evolution ✈️
 
-An endless **plane-evolution flyer** for the browser, built to be played on an iPhone (or any phone/desktop) with no app install. Inspired by the plane-evolution arcade genre — all artwork is drawn procedurally on an HTML5 canvas and all code here is original.
+A browser **slingshot launch-and-fly distance game**, built to play on an iPhone (or any phone/desktop) with no install. Inspired by the launch-and-fly arcade genre — all artwork is drawn procedurally on an HTML5 canvas and all code here is original.
 
 ## How to play
 
-- **Drag anywhere** on the screen to fly your plane (your finger is the joystick).
-- Your plane **fires automatically**.
-- Destroy enemies — balloons, fighters, and blimps — to drop glowing green **evolution orbs**.
-- Orbs are pulled toward you. Collect them to fill the **EVOLUTION** bar at the top.
-- Fill the bar to **morph into a stronger, deadlier aircraft** (8 tiers). Each evolution heals you and adds firepower.
-- Avoid enemy fire and collisions. You have a row of hearts at the bottom-left — lose them all and you're shot down.
-- Survive as long as you can to maximize your **score** and **evolution tier**.
+1. **Launch** — on the launch screen, **drag back from the plane and release** (like a slingshot). The drag direction sets the angle; the length sets the power. A dotted line previews your trajectory.
+2. **Fly** — once airborne, **tap & hold anywhere to boost** 🔥 (limited fuel). Use gravity, glide, and bounce off the rolling hills to keep your speed and fly as far as possible.
+3. **Collect coins** scattered through the sky during your flight.
+4. **Land** — when your plane comes to rest, you bank your **distance** and **coins earned** (collected coins + a distance bonus).
+5. **Upgrade & evolve** — spend coins in the hangar on Launch Power, Boost Thrust, Fuel Tank, Aerodynamics, and Wings & Bounce. Every few upgrades your plane **evolves** into a new, better-looking tier (7 tiers total).
 
-Your best score and best evolution are saved on your device.
+Goal: chase a new **best distance** each run. Coins, upgrades, evolution tier, and your best distance are all saved on your device.
 
 ## Play it
 
-It's a static site (just `index.html`, `game.js`, and a couple of assets), so it can be hosted anywhere.
+It's a static site (`index.html`, `game.js`, plus a couple of assets), so it can be hosted anywhere.
 
 ### GitHub Pages
 1. In this repo, go to **Settings → Pages**.
-2. Under **Build and deployment**, set **Source** to *Deploy from a branch*.
-3. Pick the branch this is on and the `/ (root)` folder, then **Save**.
-4. After a minute, open the published URL on your iPhone's browser.
+2. Under **Build and deployment**, set **Source** to **GitHub Actions** (the included workflow handles the rest).
+3. After a minute, open the published URL on your iPhone's browser.
 
-> Tip: On iPhone, tap the **Share** button and **Add to Home Screen** to play it fullscreen like a native app.
+> Tip: On iPhone, tap **Share → Add to Home Screen** to play fullscreen like a native app.
 
 ### Run locally
-Any static file server works, e.g.:
-
 ```bash
 python3 -m http.server 8000
-# then open http://localhost:8000 on a device on the same network
+# then open http://localhost:8000
 ```
 
 ## Files
-- `index.html` — page shell, start / game-over screens, iOS web-app meta tags.
-- `game.js` — the full game (rendering, physics, spawning, evolution system).
+- `index.html` — page shell, title / hangar-shop / results screens, iOS web-app meta tags.
+- `game.js` — the full game (slingshot launch, flight physics, terrain, coins, upgrade shop, evolution).
 - `manifest.webmanifest` + `icon.svg` — installable web-app metadata and icon.
+- `.github/workflows/pages.yml` — auto-deploys to GitHub Pages.
 
 ## Tech notes
 - Pure vanilla JS + Canvas 2D — no dependencies, no build step.
-- Handles device pixel ratio, resizes to the viewport, and prevents iOS scroll/zoom for a clean touch experience.
+- Physics-based flight: gravity, drag, lift, and slope-aware ground bounces.
+- Handles device pixel ratio, resizes to the viewport, and prevents iOS scroll/zoom for clean touch play.

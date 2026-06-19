@@ -1,12 +1,12 @@
 {
-  "name": "Sky Evolution",
-  "short_name": "SkyEvo",
-  "description": "An endless plane-evolution flyer. Fly, fight, and evolve your aircraft.",
+  "name": "Plane Evolution",
+  "short_name": "PlaneEvo",
+  "description": "A slingshot launch-and-fly distance game. Launch, boost, collect coins, upgrade and evolve your plane.",
   "start_url": "./index.html",
   "display": "fullscreen",
   "orientation": "any",
-  "background_color": "#05101f",
-  "theme_color": "#0b1e3b",
+  "background_color": "#7ec8ff",
+  "theme_color": "#7ec8ff",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
