@@ -14,7 +14,7 @@ Coins, upgrades, evolution tier, and your best distance are all saved on your de
 
 ## Play it
 
-It's a static site (`index.html`, `game.js`, plus a couple of assets). Three.js is loaded from a CDN (jsDelivr) at runtime, so the device needs internet access the first time.
+It's a fully self-contained static site (`index.html`, `game.js`, plus a couple of assets). Three.js (r128, MIT-licensed) is **vendored locally** in `vendor/`, so the game needs no CDN or external network access to run.
 
 ### GitHub Pages
 1. In this repo, go to **Settings → Pages**.
@@ -32,8 +32,10 @@ python3 -m http.server 8000
 ## Files
 - `index.html` — page shell, title / hangar-shop / results screens, in-flight HUD, iOS web-app meta tags, Three.js include.
 - `game.js` — the full 3D game (Three.js scene, flight physics, terrain, coins, upgrade shop, evolution).
+- `vendor/three.min.js` — Three.js r128 (MIT), vendored so the game runs with no CDN.
 - `manifest.webmanifest` + `icon.svg` — installable web-app metadata and icon.
-- `.github/workflows/pages.yml` — auto-deploys to GitHub Pages.
+- `test/headless_test.cjs` — Node test that mocks Three.js + DOM and drives a full run.
+- `.github/workflows/static.yml` — auto-deploys to GitHub Pages.
 
 ## Tech notes
 - Three.js (WebGL) for 3D rendering; a custom arcade flight model for physics.
