@@ -27,6 +27,8 @@ function terrainH(x, z) {
   const flat = clamp(z / 130, 0, 1);
   return h * flat;
 }
+// Meandering "safe lane" through the city — coins and gaps follow it (Boston-style winding streets)
+function laneX(z) { return Math.sin(z * 0.008) * 42 + Math.sin(z * 0.021 + 1.3) * 16; }
 
 // ---------- Upgrades & evolution ----------
 const UPGRADES = [
@@ -124,6 +126,14 @@ function makeCloudTexture() {
   }
   return new THREE.CanvasTexture(c);
 }
+function makeShadowTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, "rgba(0,0,0,0.55)"); grd.addColorStop(0.6, "rgba(0,0,0,0.32)"); grd.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
 
 // ---------- Terrain mesh ----------
 const T_W = 760, T_D = 1500, T_WSEG = 46, T_DSEG = 90;
@@ -188,9 +198,9 @@ for (let i = 0; i < COIN_COUNT; i++) {
 function placeCoin(c) {
   coinFarZ += rand(26, 60);
   c.z = coinFarZ;
-  // sometimes a small cluster line
-  c.x = rand(-34, 34);
-  c.y = terrainH(c.x, c.z) + rand(11, 60);
+  // follow the winding safe lane so coins lead you through gaps between buildings
+  c.x = laneX(c.z) + rand(-12, 12);
+  c.y = terrainH(c.x, c.z) + rand(11, 55);
   c.got = false;
   c.mesh.visible = true;
   c.mesh.position.set(c.x, c.y, c.z);
@@ -198,6 +208,77 @@ function placeCoin(c) {
 function resetCoins() {
   coinFarZ = 70;
   for (const c of coins) placeCoin(c);
+}
+
+// ---------- Ground shadow (altitude depth cue) ----------
+const shadowMesh = (() => {
+  const geo = new THREE.PlaneGeometry(1, 1);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ map: makeShadowTexture(), transparent: true, depthWrite: false, opacity: 0.45 });
+  const m = new THREE.Mesh(geo, mat);
+  scene.add(m);
+  return m;
+})();
+function updateShadow() {
+  const gh = terrainH(pos.x, pos.z);
+  const alt = clamp(pos.y - gh, 0, 160);
+  const k = clamp(alt / 130, 0, 1);
+  shadowMesh.position.set(pos.x, gh + 0.2, pos.z);
+  const s = lerp(9, 26, k);          // grows + softens with altitude
+  shadowMesh.scale.set(s, s, s);
+  shadowMesh.material.opacity = lerp(0.5, 0.06, k);
+  shadowMesh.visible = true;
+}
+
+// ---------- City (Boston-style irregular blocks to weave between) ----------
+const CITY_HALF = 115;               // city spreads this far either side of center
+const CITY_START_Z = 240;            // open runway before the skyline begins
+const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
+const cityMats = [0x9aa3ad, 0x8b96a3, 0xb0a99b, 0xa8b0b8, 0x9d8f80, 0x7e8893]
+  .map(c => new THREE.MeshLambertMaterial({ color: c }));
+const BUILDING_COUNT = 70;
+const buildings = [];
+for (let i = 0; i < BUILDING_COUNT; i++) {
+  const mesh = new THREE.Mesh(buildingGeo, cityMats[i % cityMats.length]);
+  mesh.visible = false; scene.add(mesh);
+  buildings.push({ mesh, x: 0, z: 0, w: 0, d: 0, topY: 0, active: false });
+}
+let genZ = 0, rowSlots = [];
+function buildRow(z) {
+  const L = laneX(z), gap = rand(30, 46);
+  // tall "downtown" clusters appear periodically; elsewhere mid-rise
+  const downtown = Math.sin(z * 0.0032) > 0.35;
+  const slots = [];
+  let x = -CITY_HALF + rand(0, 14);
+  while (x < CITY_HALF) {
+    const w = rand(12, 26), d = rand(12, 26);
+    const cx = x + w / 2;
+    // leave the winding street open
+    if (Math.abs(cx - L) > gap) {
+      let h = downtown ? rand(45, 130) : rand(16, 60);
+      if (Math.random() < 0.12) h += rand(20, 60); // occasional spike
+      slots.push({ x: cx, w, d, h });
+    }
+    x += w + rand(8, 24);
+  }
+  return slots;
+}
+function nextPlacement() {
+  if (rowSlots.length === 0) { genZ += rand(40, 78); rowSlots = buildRow(genZ); }
+  const s = rowSlots.pop();
+  return { x: s.x, z: genZ, w: s.w, d: s.d, h: s.h };
+}
+function placeBuilding(b) {
+  const p = nextPlacement();
+  const gh = terrainH(p.x, p.z);
+  b.x = p.x; b.z = p.z; b.w = p.w; b.d = p.d; b.topY = gh + p.h; b.active = true;
+  b.mesh.scale.set(p.w, p.h, p.d);
+  b.mesh.position.set(p.x, gh + p.h / 2, p.z);
+  b.mesh.visible = true;
+}
+function resetCity() {
+  genZ = CITY_START_Z; rowSlots = [];
+  for (const b of buildings) placeBuilding(b);
 }
 
 // ---------- Plane ----------
@@ -247,7 +328,7 @@ const pos = new THREE.Vector3();
 const vel = new THREE.Vector3();
 let yaw = 0, pitch = 0, roll = 0;
 let boostFuel = 0, boostMax = 0, boosting = false;
-let runCoins = 0, lowSpeedT = 0, pendingEvoName = null, titleT = 0;
+let runCoins = 0, lowSpeedT = 0, pendingEvoName = null, titleT = 0, shakeT = 0;
 const PLANE_GROUND = 1.6;
 
 function setupRun() {
@@ -257,11 +338,13 @@ function setupRun() {
   vel.set(0, 0, 0);
   boostMax = 1.1 + lvl("fuel") * 0.5;
   boostFuel = boostMax;
-  boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null;
+  boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
   resetCoins();
+  resetCity();
   updateTerrain(pos.x, pos.z);
   plane.position.copy(pos);
   plane.rotation.set(0, 0, 0);
+  updateShadow();
 }
 
 function forwardVec(out) {
@@ -289,10 +372,10 @@ function updateFlight(dt) {
   let targetPitch = pitch * 0.985; // relax toward level when not steering
   let yawRate = 0;
   if (touch.down) {
-    const ny = touch.y / window.innerHeight - 0.5;  // top negative
+    const ny = touch.y / window.innerHeight - 0.5;  // bottom positive
     const nx = touch.x / window.innerWidth - 0.5;
-    targetPitch = clamp(-ny * 1.6, -0.7, 0.85);     // finger high = climb
-    yawRate = clamp(nx, -0.5, 0.5) * 1.4;
+    targetPitch = clamp(ny * 1.6, -0.7, 0.85);      // inverted: finger DOWN = climb
+    yawRate = -clamp(nx, -0.5, 0.5) * 1.4;          // finger right = steer right on screen
     boosting = boostFuel > 0;
   } else boosting = false;
 
@@ -362,11 +445,34 @@ function updateFlight(dt) {
     if (c.got || pos.z - c.z > 50) placeCoin(c);
   }
 
+  // buildings: collision (weave between them) + recycle ahead
+  const PH = 3.0; // plane collision half-size (forgiving so you can squeeze through)
+  for (const b of buildings) {
+    if (b.active &&
+        Math.abs(pos.x - b.x) < b.w / 2 + PH &&
+        Math.abs(pos.z - b.z) < b.d / 2 + PH &&
+        pos.y < b.topY + PH) {
+      handleBuildingHit(b);
+    }
+    if (pos.z - b.z > 60) placeBuilding(b);
+  }
+
+  updateShadow();
   updateTerrain(pos.x, pos.z);
   updateChaseCamera(dt, f);
   updateHUD();
 
   if (onGround && lowSpeedT > 0.7) endRun();
+}
+
+function handleBuildingHit(b) {
+  // hard knock: kill most momentum, bounce up and back, shove sideways out of the wall
+  vel.multiplyScalar(0.22);
+  vel.z = -Math.abs(vel.z) - 6;
+  vel.y = Math.max(vel.y, 0) + 9;
+  vel.x += (pos.x < b.x ? -1 : 1) * 14;
+  pos.z = b.z - (b.d / 2 + 3.2); // pop just in front of the face we hit
+  shakeT = 0.35;
 }
 
 const camGoal = new THREE.Vector3(), camLook = new THREE.Vector3(), fh = new THREE.Vector3();
@@ -377,6 +483,11 @@ function updateChaseCamera(dt, f) {
   const camGround = terrainH(camGoal.x, camGoal.z) + 3;
   if (camGoal.y < camGround) camGoal.y = camGround;
   camera.position.lerp(camGoal, Math.min(1, dt * 4));
+  if (shakeT > 0) {
+    shakeT = Math.max(0, shakeT - dt);
+    const m = shakeT * 12;
+    camera.position.x += rand(-m, m); camera.position.y += rand(-m, m);
+  }
   camLook.copy(pos).addScaledVector(fh, 12).add(new THREE.Vector3(0, 1.5, 0));
   camera.lookAt(camLook);
 }
@@ -389,6 +500,7 @@ function updateAim(dt) {
   camera.position.lerp(camGoal, Math.min(1, dt * 3));
   camLook.copy(pos).add(new THREE.Vector3(0, 2, 8));
   camera.lookAt(camLook);
+  updateShadow();
   spinCoins(dt);
 }
 
@@ -555,6 +667,8 @@ pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
 plane.position.copy(pos);
 updateTerrain(0, 6);
 resetCoins();
+resetCity();
+updateShadow();
 document.getElementById("bestTitle").textContent = save.best;
 loadingEl.classList.add("hidden");
 showOverlay("title");

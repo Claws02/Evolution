@@ -66,7 +66,7 @@ const THREE = {
   Sprite: class { constructor() { Object.assign(this, obj3d()); } },
   Mesh: class { constructor(g, m) { Object.assign(this, obj3d()); this.geometry = g; this.material = m; } },
   Group: class { constructor() { Object.assign(this, obj3d()); } },
-  PlaneGeometry: class { constructor(w, d, ws, ds) { Object.assign(this, geo()); this.attributes = { position: makeBufferAttr((ws + 1) * (ds + 1)) };
+  PlaneGeometry: class { constructor(w, d, ws = 1, ds = 1) { Object.assign(this, geo()); this.attributes = { position: makeBufferAttr((ws + 1) * (ds + 1)) };
     // lay out a grid so terrain displacement reads real planar coords
     const pos = this.attributes.position; let i = 0;
     for (let zi = 0; zi <= ds; zi++) for (let xi = 0; xi <= ws; xi++) { pos.setX(i, -w / 2 + (w / ws) * xi); pos.setZ(i, -d / 2 + (d / ds) * zi); i++; } } },
