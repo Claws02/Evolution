@@ -651,11 +651,11 @@ function render() {
 // ---------- Loop ----------
 let last = 0;
 function loop(ts) {
+  requestAnimationFrame(loop); // keep the loop alive even if a frame throws
   const dt = Math.min(0.05, (ts - last) / 1000 || 0);
   last = ts;
   if (state === "play") update(dt);
   render();
-  requestAnimationFrame(loop);
 }
 
 // ---------- Screens ----------
@@ -683,5 +683,7 @@ document.getElementById("startBtn").addEventListener("click", startGame);
 document.getElementById("restartBtn").addEventListener("click", startGame);
 document.getElementById("bestStart").textContent = store.evo;
 
+reset();            // initialize all arrays/state so the first frames render cleanly
+state = "start";    // ...but stay on the start screen until the player taps Play
 requestAnimationFrame(loop);
 })();
