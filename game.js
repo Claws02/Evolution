@@ -496,7 +496,7 @@ const overlays = {
   result: document.getElementById("resultScreen"),
 };
 function hideAllOverlays() { for (const k in overlays) overlays[k].classList.add("hidden"); }
-function showOverlay(id) { hideAllOverlays(); document.getElementById(id).classList.remove("hidden"); }
+function showOverlay(key) { hideAllOverlays(); (overlays[key] || document.getElementById(key)).classList.remove("hidden"); }
 
 function renderShop() {
   const shop = document.getElementById("shop");
