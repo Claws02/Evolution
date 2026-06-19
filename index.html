@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0b1e3b" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>Sky Evolution</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #05101f;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none; overscroll-behavior: none;
+    position: fixed;
+  }
+  #game { display: block; width: 100%; height: 100%; touch-action: none; }
+  .overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    color: #fff; padding: 24px; gap: 18px; z-index: 10;
+    background: radial-gradient(120% 120% at 50% 30%, rgba(20,60,120,.55), rgba(5,16,31,.92));
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  }
+  .hidden { display: none !important; }
+  h1 { font-size: clamp(34px, 11vw, 72px); letter-spacing: 1px; line-height: .95;
+       text-shadow: 0 4px 0 #0a2d5e, 0 0 24px rgba(90,170,255,.6); }
+  h1 .sub { display:block; font-size: .34em; letter-spacing: 6px; color:#8fc3ff; margin-top:8px; }
+  p { font-size: clamp(15px, 4.2vw, 19px); max-width: 460px; opacity: .92; line-height: 1.5; }
+  .tag { font-size: 13px; opacity:.6; letter-spacing:1px; }
+  button {
+    font: inherit; font-weight: 700; font-size: clamp(18px, 5.4vw, 24px);
+    color: #06121f; background: linear-gradient(#ffe27a, #ffb43d);
+    border: none; border-radius: 999px; padding: 16px 46px; cursor: pointer;
+    box-shadow: 0 6px 0 #b8742a, 0 10px 24px rgba(0,0,0,.4);
+    transition: transform .05s ease;
+  }
+  button:active { transform: translateY(4px); box-shadow: 0 2px 0 #b8742a, 0 6px 16px rgba(0,0,0,.4); }
+  .stat { font-size: clamp(18px, 6vw, 28px); font-weight: 800; }
+  .stat span { color: #ffd454; }
+  .best { font-size: 15px; opacity:.8; }
+  .row { display:flex; gap: 26px; }
+  .row > div { display:flex; flex-direction:column; gap:2px; }
+  .row small { opacity:.6; font-size:12px; letter-spacing:1px; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="startScreen" class="overlay">
+  <h1>SKY<br>EVOLUTION<span class="sub">FLY · FIGHT · EVOLVE</span></h1>
+  <p>Drag anywhere to fly your plane. It fires on its own. Smash enemies to collect glowing <b>evolution orbs</b> — fill the bar to morph into a deadlier aircraft!</p>
+  <button id="startBtn">TAP TO FLY</button>
+  <p class="tag">Best evolution reached: <span id="bestStart">1</span></p>
+</div>
+
+<div id="gameOverScreen" class="overlay hidden">
+  <h1 style="font-size:clamp(30px,9vw,60px)">SHOT DOWN</h1>
+  <div class="row">
+    <div><small>Score</small><div class="stat"><span id="finalScore">0</span></div></div>
+    <div><small>Evolution</small><div class="stat"><span id="finalEvo">1</span></div></div>
+  </div>
+  <p class="best">Best score: <span id="bestScore">0</span> · Best evolution: <span id="bestEvo">1</span></p>
+  <button id="restartBtn">FLY AGAIN</button>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
