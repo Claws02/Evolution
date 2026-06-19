@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="theme-color" content="#7ec8ff" />
 <meta name="mobile-web-app-capable" content="yes" />
-<title>Plane Evolution</title>
+<title>Plane Evolution 3D</title>
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <style>
@@ -19,7 +19,7 @@
     -webkit-user-select: none; user-select: none;
     touch-action: none; overscroll-behavior: none; color: #fff;
   }
-  #game { display: block; width: 100%; height: 100%; touch-action: none; }
+  #scene { display: block; width: 100%; height: 100%; touch-action: none; }
 
   .overlay {
     position: fixed; inset: 0; display: flex; flex-direction: column;
@@ -30,12 +30,12 @@
   }
   .hidden { display: none !important; }
 
-  h1 { font-size: clamp(34px, 11vw, 70px); line-height: .92; letter-spacing: 1px;
+  h1 { font-size: clamp(32px, 10vw, 66px); line-height: .92; letter-spacing: 1px;
        text-shadow: 0 4px 0 #2f6db0, 0 0 22px rgba(255,255,255,.35); }
   h1 .sub { display:block; font-size: .3em; letter-spacing: 5px; color:#eaf6ff; margin-top:10px; }
   p { font-size: clamp(14px, 4vw, 18px); max-width: 460px; opacity: .96; line-height: 1.5;
       text-shadow: 0 1px 2px rgba(0,0,0,.25); }
-  .tag { font-size: 13px; opacity:.85; }
+  .tag { font-size: 13px; opacity:.9; }
 
   button {
     font: inherit; font-weight: 800; font-size: clamp(18px, 5.4vw, 24px);
@@ -48,7 +48,6 @@
   button.secondary { background: linear-gradient(#dff0ff, #a9d4ff); color:#06121f; box-shadow: 0 6px 0 #5a8fc0, 0 10px 24px rgba(0,0,0,.3); }
   button.secondary:active { box-shadow: 0 2px 0 #5a8fc0; }
 
-  /* translucent panels */
   .panel {
     width: 100%; max-width: 460px; background: rgba(10,30,60,.55);
     -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
@@ -59,23 +58,20 @@
   .coin { width: 1em; height: 1em; border-radius:50%; background:radial-gradient(circle at 35% 30%, #fff6c4, #ffcf3a 60%, #e0a31e);
           box-shadow: inset 0 0 0 2px #b8821a; display:inline-block; }
 
-  .shop { display:flex; flex-direction:column; gap:9px; width:100%; max-width:460px; }
-  .up {
-    display:flex; align-items:center; gap:12px; text-align:left;
-    background: rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16);
-    border-radius:16px; padding:10px 12px;
-  }
+  .scroll { width:100%; max-width:460px; overflow-y:auto; max-height: 46vh; -webkit-overflow-scrolling: touch;
+            display:flex; flex-direction:column; gap:9px; padding: 2px; }
+  .up { display:flex; align-items:center; gap:12px; text-align:left;
+        background: rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16);
+        border-radius:16px; padding:10px 12px; }
   .up .ico { font-size: 26px; width: 34px; text-align:center; }
   .up .info { flex:1; min-width:0; }
   .up .name { font-weight:800; font-size: 15px; }
   .up .pips { display:flex; gap:3px; margin-top:5px; }
   .up .pip { flex:1; height:6px; border-radius:3px; background: rgba(255,255,255,.2); }
   .up .pip.on { background: linear-gradient(90deg,#7dffb0,#39d6ff); }
-  .up .buy {
-    font-weight:800; font-size:14px; color:#06121f; white-space:nowrap;
-    background: linear-gradient(#ffe27a,#ffb43d); border:none; border-radius:999px;
-    padding:9px 14px; box-shadow:0 4px 0 #b8742a; min-width: 84px;
-  }
+  .up .buy { font-weight:800; font-size:14px; color:#06121f; white-space:nowrap;
+             background: linear-gradient(#ffe27a,#ffb43d); border:none; border-radius:999px;
+             padding:9px 14px; box-shadow:0 4px 0 #b8742a; min-width: 84px; }
   .up .buy:disabled { background:#6f86a5; color:#c9d6e6; box-shadow:0 4px 0 #4d617c; opacity:.7; }
   .up .buy:active:not(:disabled) { transform: translateY(3px); box-shadow:0 1px 0 #b8742a; }
   .up .buy .c { display:inline-flex; align-items:center; gap:4px; }
@@ -84,17 +80,47 @@
 
   .evoBadge { font-size:13px; letter-spacing:1px; opacity:.95; text-transform:uppercase; }
   .row2 { display:flex; gap:14px; align-items:center; }
-  .scroll { width:100%; max-width:460px; overflow-y:auto; max-height: 46vh; -webkit-overflow-scrolling: touch;
-            display:flex; flex-direction:column; gap:9px; padding: 2px; }
+
+  /* In-flight HUD */
+  #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none;
+         padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 14px); }
+  #hud.hidden { display:none; }
+  #distBig { position:absolute; top: calc(env(safe-area-inset-top) + 10px); left:0; right:0; text-align:center;
+             font-weight:900; font-size: clamp(26px,8vw,40px); text-shadow:0 2px 6px rgba(0,0,0,.4); }
+  #distBig small { display:block; font-size:.32em; letter-spacing:3px; opacity:.85; font-weight:700; }
+  #coinHud { position:absolute; top: calc(env(safe-area-inset-top) + 14px); right:16px;
+             font-weight:800; font-size:20px; text-shadow:0 2px 6px rgba(0,0,0,.4); color:#ffe27a; }
+  #fuelWrap { position:absolute; left:16px; right:16px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+              max-width:340px; margin:0 auto; }
+  #fuelBar { height:16px; border-radius:9px; background:rgba(0,0,0,.3); overflow:hidden; }
+  #fuelFill { height:100%; width:100%; background:linear-gradient(90deg,#ff7a2a,#ffd24a); border-radius:9px; transition: width .05s linear; }
+  #fuelLabel { text-align:center; font-weight:800; font-size:11px; margin-top:4px; text-shadow:0 1px 3px rgba(0,0,0,.5); letter-spacing:1px; }
+  #aimHint { position:absolute; left:0; right:0; top:46%; text-align:center; font-weight:700; font-size:16px;
+             text-shadow:0 2px 6px rgba(0,0,0,.5); }
+  #loading { position: fixed; inset:0; display:flex; align-items:center; justify-content:center;
+             font-weight:800; font-size:18px; z-index: 20; background:#7ec8ff; }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
+<canvas id="scene"></canvas>
+
+<div id="loading">Loading…</div>
+
+<!-- In-flight HUD -->
+<div id="hud" class="hidden">
+  <div id="distBig">0<small>METERS</small></div>
+  <div id="coinHud">◉ 0</div>
+  <div id="aimHint"></div>
+  <div id="fuelWrap">
+    <div id="fuelBar"><div id="fuelFill"></div></div>
+    <div id="fuelLabel">HOLD TO BOOST 🔥</div>
+  </div>
+</div>
 
 <!-- Title -->
-<div id="titleScreen" class="overlay">
-  <h1>PLANE<br>EVOLUTION<span class="sub">LAUNCH · GLIDE · UPGRADE</span></h1>
-  <p>Sling your plane off the ramp and fly as far as you can. Tap &amp; hold to <b>boost</b>, skim the hills to keep your speed, and grab coins to upgrade &amp; <b>evolve</b> your aircraft.</p>
+<div id="titleScreen" class="overlay hidden">
+  <h1>PLANE<br>EVOLUTION<span class="sub">3D · LAUNCH · FLY · EVOLVE</span></h1>
+  <p>Sling your plane off the ramp into a 3D sky. <b>Hold to boost</b>, and <b>steer with your finger</b> — dive to gain speed, pull up to soar. Grab coins to upgrade &amp; <b>evolve</b> your aircraft.</p>
   <button id="playBtn">START</button>
   <p class="tag">Best distance: <span id="bestTitle">0</span> m</p>
 </div>
@@ -104,7 +130,7 @@
   <div class="evoBadge">Tier <span id="evoTier">1</span> · <span id="evoName">Paper Glider</span></div>
   <div class="coinsRow"><span class="coin"></span><span id="coinCount">0</span></div>
   <div class="scroll" id="shop"></div>
-  <button id="launchBtn">LAUNCH ✈</button>
+  <button id="launchBtn">TO THE RUNWAY ✈</button>
   <p class="tag">Best distance: <span id="bestHangar">0</span> m</p>
 </div>
 
@@ -112,15 +138,9 @@
 <div id="resultScreen" class="overlay hidden">
   <h1 style="font-size:clamp(28px,8vw,52px)">LANDED!</h1>
   <div class="panel">
-    <div class="row2" style="justify-content:space-between">
-      <span>Distance</span><b style="font-size:22px"><span id="runDist">0</span> m</b>
-    </div>
-    <div class="row2" style="justify-content:space-between">
-      <span>Coins earned</span><b style="font-size:22px;color:#ffe27a"><span class="coin"></span> <span id="runCoins">0</span></b>
-    </div>
-    <div class="row2" style="justify-content:space-between;opacity:.85;font-size:14px">
-      <span>Best distance</span><span><span id="runBest">0</span> m</span>
-    </div>
+    <div class="row2" style="justify-content:space-between"><span>Distance</span><b style="font-size:22px"><span id="runDist">0</span> m</b></div>
+    <div class="row2" style="justify-content:space-between"><span>Coins earned</span><b style="font-size:22px;color:#ffe27a"><span class="coin"></span> <span id="runCoins">0</span></b></div>
+    <div class="row2" style="justify-content:space-between;opacity:.85;font-size:14px"><span>Best distance</span><span><span id="runBest">0</span> m</span></div>
   </div>
   <div id="evoNotice" class="evoBadge hidden">⭐ EVOLVED — <span id="evoNoticeName"></span>!</div>
   <div class="row2">
@@ -129,6 +149,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
