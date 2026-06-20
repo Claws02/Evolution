@@ -281,6 +281,36 @@ function resetCity() {
   for (const b of buildings) placeBuilding(b);
 }
 
+// ---------- Boost-fuel pickups (refill your boost tank mid-flight) ----------
+const flameGeo = new THREE.ConeGeometry(1.5, 3.4, 12);
+const fuelBaseGeo = new THREE.CylinderGeometry(1.7, 1.7, 0.7, 12);
+const flameMat = new THREE.MeshStandardMaterial({ color: 0xff7a1f, emissive: 0xff4400, emissiveIntensity: 0.9, metalness: 0.2, roughness: 0.5 });
+const fuelBaseMat = new THREE.MeshStandardMaterial({ color: 0x2c333d, metalness: 0.5, roughness: 0.5 });
+const FUEL_COUNT = 12;
+const fuels = [];
+for (let i = 0; i < FUEL_COUNT; i++) {
+  const grp = new THREE.Group();
+  const fl = new THREE.Mesh(flameGeo, flameMat); fl.position.y = 2.1; grp.add(fl);
+  const base = new THREE.Mesh(fuelBaseGeo, fuelBaseMat); base.position.y = 0.35; grp.add(base);
+  grp.visible = false; scene.add(grp);
+  fuels.push({ grp, x: 0, y: 0, z: 0, got: false });
+}
+let fuelFarZ = 0;
+const FUEL_REFILL = 0.5; // fraction of the tank each pickup restores
+function placeFuel(f) {
+  fuelFarZ += rand(170, 320);
+  f.z = fuelFarZ;
+  f.x = laneX(f.z) + rand(-12, 12);
+  f.y = terrainH(f.x, f.z) + rand(16, 50);
+  f.got = false;
+  f.grp.visible = true;
+  f.grp.position.set(f.x, f.y, f.z);
+}
+function resetFuels() {
+  fuelFarZ = 130;
+  for (const f of fuels) placeFuel(f);
+}
+
 // ---------- Plane ----------
 let plane = null;
 function buildPlane(tier) {
@@ -341,6 +371,7 @@ function setupRun() {
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
   resetCoins();
   resetCity();
+  resetFuels();
   updateTerrain(pos.x, pos.z);
   plane.position.copy(pos);
   plane.rotation.set(0, 0, 0);
@@ -355,8 +386,8 @@ function forwardVec(out) {
 // ---------- Launch ----------
 function launch(power, launchPitch) {
   // Launch Power dominates initial speed; a fresh plane is slow and won't go far without upgrades.
-  const maxSpeed = 92 + lvl("power") * 21 + save.tier * 8;
-  const speed = lerp(52, maxSpeed, power);
+  const maxSpeed = 78 + lvl("power") * 22 + save.tier * 8;
+  const speed = lerp(44, maxSpeed, power);
   pitch = launchPitch; yaw = 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
@@ -368,14 +399,14 @@ function launch(power, launchPitch) {
 }
 
 // ---------- Physics ----------
-const G = 23, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
+const G = 25, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
 function updateFlight(dt) {
   // input → target attitude (virtual joystick)
   let targetPitch = pitch * 0.985; // relax toward level when not steering
   let yawRate = 0;
   if (joy.active) {
-    targetPitch = clamp(joy.y * 0.9, -0.7, 0.85);   // push stick DOWN = climb (inverted)
-    yawRate = -joy.x * 1.4;                          // stick right = bank right on screen
+    targetPitch = clamp(joy.y * 0.8, -0.7, 0.85);   // push stick DOWN = climb (inverted)
+    yawRate = -joy.x * 1.2;                          // stick right = bank right on screen
   }
   boosting = boostHeld && boostFuel > 0 && hasBoost();
 
@@ -398,18 +429,21 @@ function updateFlight(dt) {
   // gravity
   vel.y -= G * dt;
 
+  // pitch trades altitude for speed: nose DOWN accelerates along heading, nose UP decelerates
+  vel.addScaledVector(f, -Math.sin(pitch) * G * 0.65 * dt);
+
   // lift: horizontal speed sustains altitude. Weak by default — Wings upgrades matter a lot.
   const speedH = Math.hypot(vel.x, vel.z);
-  const lift = clamp(speedH * (0.045 + lvl("wings") * 0.030), 0, G * 0.97);
+  const lift = clamp(speedH * (0.03 + lvl("wings") * 0.030), 0, G * 0.97);
   vel.y += lift * dt;
 
-  // aerodynamic alignment: nudge velocity toward where the nose points
+  // aerodynamic alignment: send velocity where the nose points (so pitch actually steers the dive)
   speed = vel.length();
   dTmp.copy(f).multiplyScalar(speed);
-  vel.lerp(dTmp, Math.min(1, 1.2 * dt));
+  vel.lerp(dTmp, Math.min(1, 2.0 * dt));
 
   // drag (much less with Aerodynamics upgrades)
-  const drag = 0.23 - lvl("aero") * 0.021;
+  const drag = 0.25 - lvl("aero") * 0.022;
   vel.multiplyScalar(Math.max(0, 1 - drag * dt));
 
   pos.addScaledVector(vel, dt);
@@ -443,6 +477,20 @@ function updateFlight(dt) {
       c.mesh.rotation.z += dt * 3;
     }
     if (c.got || pos.z - c.z > 50) placeCoin(c);
+  }
+
+  // boost-fuel pickups: refill the tank
+  for (const f of fuels) {
+    if (!f.got) {
+      f.grp.rotation.y += dt * 2.2;
+      const dx = f.x - pos.x, dy = f.y - pos.y, dz = f.z - pos.z;
+      if (dx * dx + dy * dy + dz * dz < 49) {
+        f.got = true; f.grp.visible = false;
+        boostFuel = Math.min(boostMax, boostFuel + boostMax * FUEL_REFILL);
+        shakeT = Math.max(shakeT, 0.1);
+      }
+    }
+    if (f.got || pos.z - f.z > 60) placeFuel(f);
   }
 
   // buildings: collision (weave between them) + recycle ahead
@@ -722,6 +770,7 @@ plane.position.copy(pos);
 updateTerrain(0, 6);
 resetCoins();
 resetCity();
+resetFuels();
 updateShadow();
 document.getElementById("bestTitle").textContent = save.best;
 loadingEl.classList.add("hidden");
