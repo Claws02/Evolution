@@ -90,13 +90,33 @@
   #distBig small { display:block; font-size:.32em; letter-spacing:3px; opacity:.85; font-weight:700; }
   #coinHud { position:absolute; top: calc(env(safe-area-inset-top) + 14px); right:16px;
              font-weight:800; font-size:20px; text-shadow:0 2px 6px rgba(0,0,0,.4); color:#ffe27a; }
-  #fuelWrap { position:absolute; left:16px; right:16px; bottom: calc(env(safe-area-inset-bottom) + 18px);
-              max-width:340px; margin:0 auto; }
-  #fuelBar { height:16px; border-radius:9px; background:rgba(0,0,0,.3); overflow:hidden; }
-  #fuelFill { height:100%; width:100%; background:linear-gradient(90deg,#ff7a2a,#ffd24a); border-radius:9px; transition: width .05s linear; }
-  #fuelLabel { text-align:center; font-weight:800; font-size:11px; margin-top:4px; text-shadow:0 1px 3px rgba(0,0,0,.5); letter-spacing:1px; }
+  #fuelWrap { position:absolute; left:16px; top: calc(env(safe-area-inset-top) + 48px); width:150px; }
+  #fuelBar { height:14px; border-radius:8px; background:rgba(0,0,0,.3); overflow:hidden; }
+  #fuelFill { height:100%; width:100%; background:linear-gradient(90deg,#ff7a2a,#ffd24a); border-radius:8px; transition: width .05s linear; }
+  #fuelLabel { text-align:left; font-weight:800; font-size:10px; margin-top:4px; text-shadow:0 1px 3px rgba(0,0,0,.5); letter-spacing:1px; }
   #aimHint { position:absolute; left:0; right:0; top:46%; text-align:center; font-weight:700; font-size:16px;
              text-shadow:0 2px 6px rgba(0,0,0,.5); }
+
+  /* Virtual joystick (bottom-right) */
+  #joy { position:absolute; display:none; pointer-events:auto;
+         right: calc(env(safe-area-inset-right) + 22px); bottom: calc(env(safe-area-inset-bottom) + 26px);
+         width:132px; height:132px; border-radius:50%;
+         background:rgba(255,255,255,.12); border:2px solid rgba(255,255,255,.35);
+         box-shadow: inset 0 0 24px rgba(0,0,0,.18); }
+  #joy.show { display:block; }
+  #joyKnob { position:absolute; left:50%; top:50%; width:60px; height:60px; margin:-30px 0 0 -30px;
+             border-radius:50%; background:radial-gradient(circle at 38% 32%, #ffffff, #c9dcf0 70%, #9ab4d4);
+             box-shadow:0 4px 12px rgba(0,0,0,.35); will-change:transform; }
+  /* Boost button (bottom-left) */
+  #boostBtn { position:absolute; display:none; pointer-events:auto;
+              left: calc(env(safe-area-inset-left) + 22px); bottom: calc(env(safe-area-inset-bottom) + 36px);
+              width:96px; height:96px; border-radius:50%;
+              align-items:center; justify-content:center; text-align:center;
+              font-weight:900; font-size:15px; letter-spacing:1px; color:#3a1c00;
+              background:radial-gradient(circle at 40% 32%, #ffd98a, #ff9a3d 65%, #ff7a1f);
+              border:3px solid rgba(255,255,255,.55); box-shadow:0 6px 16px rgba(0,0,0,.4); }
+  #boostBtn.show { display:flex; }
+  #boostBtn.active { transform: scale(.92); filter:brightness(1.15); }
   #loading { position: fixed; inset:0; display:flex; align-items:center; justify-content:center;
              font-weight:800; font-size:18px; z-index: 20; background:#7ec8ff; }
 </style>
@@ -115,12 +135,14 @@
     <div id="fuelBar"><div id="fuelFill"></div></div>
     <div id="fuelLabel">HOLD TO BOOST 🔥</div>
   </div>
+  <div id="boostBtn">BOOST</div>
+  <div id="joy"><div id="joyKnob"></div></div>
 </div>
 
 <!-- Title -->
 <div id="titleScreen" class="overlay hidden">
   <h1>PLANE<br>EVOLUTION<span class="sub">3D · LAUNCH · FLY · EVOLVE</span></h1>
-  <p>Sling your plane off the ramp into a 3D sky. <b>Hold to boost</b>, and <b>steer with your finger</b> — dive to gain speed, pull up to soar. Grab coins to upgrade &amp; <b>evolve</b> your aircraft.</p>
+  <p>Sling your plane off the ramp into a 3D sky, then <b>fly it with the on-screen joystick</b>. Buy a <b>booster</b> to unlock the boost button. Grab coins to upgrade &amp; <b>evolve</b> your aircraft — better parts mean longer flights.</p>
   <button id="playBtn">START</button>
   <p class="tag">Best distance: <span id="bestTitle">0</span> m</p>
 </div>

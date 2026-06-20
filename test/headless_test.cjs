@@ -95,6 +95,7 @@ function mockEl(id) {
     _fire(t, ev) { (listeners[t] || []).forEach(fn => fn(ev || { preventDefault() {} })); },
     querySelector() { return mockEl(id + "::child"); },
     appendChild(c) { this.children.push(c); }, getContext() { return mockCtx(); },
+    getBoundingClientRect() { return { left: 0, top: 0, width: 120, height: 120, right: 120, bottom: 120 }; },
     width: 0, height: 0,
   };
   return el;
@@ -122,7 +123,7 @@ const performanceMock = { now: () => nowMs };
 
 // Seed a save with coins + some upgrades so we exercise tier>0 (bigger plane) and the shop.
 localStore.set("pe3d_save_v1", JSON.stringify({
-  coins: 100000, best: 0, up: { power: 3, boost: 2, fuel: 4, aero: 1, wings: 2 },
+  coins: 100000, best: 0, up: { power: 1, boost: 1, fuel: 1, aero: 1, wings: 1 }, // total 5 -> tier 1
 }));
 
 // expose globals
@@ -170,18 +171,28 @@ touch("touchmove", 195, 700);    // drag down ~278px
 touch("touchend", 195, 700);
 assert(true, "launch input processed (no throw)");
 
-// 5) Flight: simulate holding to boost+steer for a while, then release to glide until landing
-let landed = false, maxZ = 0, maxFrames = 4000;
+// helpers for the new controls
+function joyEvt(type, id, x, y) {
+  document.getElementById("joy")._fire(type, { preventDefault() {}, changedTouches: [{ identifier: id, clientX: x, clientY: y }] });
+}
+function boostEvt(type) { document.getElementById("boostBtn")._fire(type, { preventDefault() {} }); }
+
+assert(document.getElementById("joy").classList.contains("show"), "joystick shown during flight");
+assert(document.getElementById("boostBtn").classList.contains("show"), "boost button shown (boost upgrade owned)");
+
+// 5) Flight: press boost + push the joystick down (climb), then release and glide to landing
+let landed = false, maxZ = 0, maxFrames = 12000;
 try {
-  // hold (boost) for ~3s steering gently
-  touch("touchstart", 220, 380);
+  boostEvt("touchstart");
+  joyEvt("touchstart", 1, 60, 110); // below center -> climb
   for (let i = 0; i < 1200 && !landed; i++) {
-    touch("touchmove", 220, 380 - Math.min(i, 60)); // finger high -> climb
+    joyEvt("touchmove", 1, 60, 110);
     frame(16);
     maxZ = Math.max(maxZ, readDistance());
     if (resultShown()) { landed = true; break; }
   }
-  touch("touchend", 220, 380);
+  boostEvt("touchend");
+  joyEvt("touchend", 1, 60, 60);
   // glide until it lands
   for (let i = 0; i < maxFrames && !landed; i++) {
     frame(16);

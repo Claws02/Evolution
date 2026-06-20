@@ -232,7 +232,7 @@ function updateShadow() {
 
 // ---------- City (Boston-style irregular blocks to weave between) ----------
 const CITY_HALF = 115;               // city spreads this far either side of center
-const CITY_START_Z = 240;            // open runway before the skyline begins
+const CITY_START_Z = 170;            // open runway before the skyline begins
 const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
 const cityMats = [0x9aa3ad, 0x8b96a3, 0xb0a99b, 0xa8b0b8, 0x9d8f80, 0x7e8893]
   .map(c => new THREE.MeshLambertMaterial({ color: c }));
@@ -354,8 +354,9 @@ function forwardVec(out) {
 
 // ---------- Launch ----------
 function launch(power, launchPitch) {
-  const maxSpeed = 150 + lvl("power") * 24 + save.tier * 12;
-  const speed = lerp(70, maxSpeed, power);
+  // Launch Power dominates initial speed; a fresh plane is slow and won't go far without upgrades.
+  const maxSpeed = 92 + lvl("power") * 21 + save.tier * 8;
+  const speed = lerp(52, maxSpeed, power);
   pitch = launchPitch; yaw = 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
@@ -363,21 +364,20 @@ function launch(power, launchPitch) {
   hud.classList.remove("hidden");
   aimHintEl.textContent = "";
   hideAllOverlays();
+  showFlightControls();
 }
 
 // ---------- Physics ----------
-const G = 19, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
+const G = 23, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
 function updateFlight(dt) {
-  // input → target attitude
+  // input → target attitude (virtual joystick)
   let targetPitch = pitch * 0.985; // relax toward level when not steering
   let yawRate = 0;
-  if (touch.down) {
-    const ny = touch.y / window.innerHeight - 0.5;  // bottom positive
-    const nx = touch.x / window.innerWidth - 0.5;
-    targetPitch = clamp(ny * 1.6, -0.7, 0.85);      // inverted: finger DOWN = climb
-    yawRate = -clamp(nx, -0.5, 0.5) * 1.4;          // finger right = steer right on screen
-    boosting = boostFuel > 0;
-  } else boosting = false;
+  if (joy.active) {
+    targetPitch = clamp(joy.y * 0.9, -0.7, 0.85);   // push stick DOWN = climb (inverted)
+    yawRate = -joy.x * 1.4;                          // stick right = bank right on screen
+  }
+  boosting = boostHeld && boostFuel > 0 && hasBoost();
 
   pitch += (targetPitch - pitch) * Math.min(1, dt * 4);
   yaw += yawRate * dt;
@@ -386,10 +386,10 @@ function updateFlight(dt) {
   const f = forwardVec(fTmp);
   let speed = vel.length();
 
-  // thrust
+  // thrust (only available once a Boost upgrade is owned)
   const flame = plane.userData.flame;
   if (boosting) {
-    const thrust = 55 + lvl("boost") * 12 + save.tier * 5;
+    const thrust = 62 + lvl("boost") * 15 + save.tier * 4;
     vel.addScaledVector(f, thrust * dt);
     boostFuel = Math.max(0, boostFuel - dt);
     if (flame) { flame.visible = true; flame.scale.setScalar(rand(0.8, 1.3)); }
@@ -398,9 +398,9 @@ function updateFlight(dt) {
   // gravity
   vel.y -= G * dt;
 
-  // lift: horizontal speed sustains altitude (better wings = more lift)
+  // lift: horizontal speed sustains altitude. Weak by default — Wings upgrades matter a lot.
   const speedH = Math.hypot(vel.x, vel.z);
-  const lift = clamp(speedH * (0.12 + lvl("wings") * 0.022), 0, G * 0.92);
+  const lift = clamp(speedH * (0.045 + lvl("wings") * 0.030), 0, G * 0.97);
   vel.y += lift * dt;
 
   // aerodynamic alignment: nudge velocity toward where the nose points
@@ -408,8 +408,8 @@ function updateFlight(dt) {
   dTmp.copy(f).multiplyScalar(speed);
   vel.lerp(dTmp, Math.min(1, 1.2 * dt));
 
-  // drag (less with aerodynamics)
-  const drag = 0.16 - lvl("aero") * 0.012;
+  // drag (much less with Aerodynamics upgrades)
+  const drag = 0.23 - lvl("aero") * 0.021;
   vel.multiplyScalar(Math.max(0, 1 - drag * dt));
 
   pos.addScaledVector(vel, dt);
@@ -528,6 +528,7 @@ function endRun() {
   if (pendingEvoName) { notice.classList.remove("hidden"); document.getElementById("evoNoticeName").textContent = pendingEvoName; }
   else notice.classList.add("hidden");
   hud.classList.add("hidden");
+  hideFlightControls();
   showOverlay("resultScreen");
 }
 
@@ -535,6 +536,7 @@ function endRun() {
 const hud = document.getElementById("hud");
 const distBig = document.getElementById("distBig");
 const coinHud = document.getElementById("coinHud");
+const fuelWrap = document.getElementById("fuelWrap");
 const fuelFill = document.getElementById("fuelFill");
 const fuelLabel = document.getElementById("fuelLabel");
 const aimHintEl = document.getElementById("aimHint");
@@ -543,7 +545,7 @@ function updateHUD() {
   coinHud.textContent = "◉ " + runCoins;
   const frac = clamp(boostFuel / boostMax, 0, 1);
   fuelFill.style.width = (frac * 100) + "%";
-  fuelLabel.textContent = boostFuel > 0 ? "HOLD TO BOOST 🔥 · STEER WITH FINGER" : "OUT OF FUEL — GLIDE!";
+  fuelLabel.textContent = boostFuel > 0 ? "BOOST FUEL 🔥" : "BOOST EMPTY — GLIDE!";
 }
 
 // ---------- Input ----------
@@ -586,6 +588,56 @@ canvas.addEventListener("touchcancel",e => { e.preventDefault(); onUp(e); }, { p
 canvas.addEventListener("mousedown", onDown);
 window.addEventListener("mousemove", onMove);
 window.addEventListener("mouseup", onUp);
+
+// ---------- Virtual joystick (bottom-right) + boost button (bottom-left) ----------
+const joy = { active: false, id: null, x: 0, y: 0, cx: 0, cy: 0, r: 60 };
+let boostHeld = false;
+const joyEl = document.getElementById("joy");
+const joyKnob = document.getElementById("joyKnob");
+const boostBtn = document.getElementById("boostBtn");
+const hasBoost = () => lvl("boost") >= 1;
+
+function joyMoveTo(x, y) {
+  let dx = x - joy.cx, dy = y - joy.cy;
+  const len = Math.hypot(dx, dy);
+  if (len > joy.r) { dx *= joy.r / len; dy *= joy.r / len; }
+  joy.x = dx / joy.r; joy.y = dy / joy.r;
+  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+function joyStart(x, y) {
+  const r = joyEl.getBoundingClientRect ? joyEl.getBoundingClientRect() : { left: x, top: y, width: 0, height: 0 };
+  joy.cx = r.left + r.width / 2; joy.cy = r.top + r.height / 2; joy.active = true;
+  joyMoveTo(x, y);
+}
+function joyReset() { joy.active = false; joy.id = null; joy.x = 0; joy.y = 0; if (joyKnob) joyKnob.style.transform = "translate(0px,0px)"; }
+
+joyEl.addEventListener("touchstart", e => { e.preventDefault(); const t = e.changedTouches[0]; joy.id = t.identifier; joyStart(t.clientX, t.clientY); }, { passive: false });
+joyEl.addEventListener("touchmove",  e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === joy.id) joyMoveTo(t.clientX, t.clientY); }, { passive: false });
+joyEl.addEventListener("touchend",   e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === joy.id) joyReset(); }, { passive: false });
+joyEl.addEventListener("touchcancel",e => { e.preventDefault(); joyReset(); }, { passive: false });
+// mouse (desktop)
+let joyMouse = false;
+joyEl.addEventListener("mousedown", e => { e.preventDefault(); joyMouse = true; joyStart(e.clientX, e.clientY); });
+window.addEventListener("mousemove", e => { if (joyMouse) joyMoveTo(e.clientX, e.clientY); });
+window.addEventListener("mouseup", () => { if (joyMouse) { joyMouse = false; joyReset(); } });
+
+function boostOn(e) { if (e) e.preventDefault(); boostHeld = true; boostBtn.classList.add("active"); }
+function boostOff(e) { if (e) e.preventDefault(); boostHeld = false; boostBtn.classList.remove("active"); }
+boostBtn.addEventListener("touchstart", boostOn, { passive: false });
+boostBtn.addEventListener("touchend", boostOff, { passive: false });
+boostBtn.addEventListener("touchcancel", boostOff, { passive: false });
+boostBtn.addEventListener("mousedown", boostOn);
+window.addEventListener("mouseup", () => boostOff());
+
+function showFlightControls() {
+  joyReset(); joyEl.classList.add("show");
+  if (hasBoost()) boostBtn.classList.add("show"); else boostBtn.classList.remove("show");
+  fuelWrap.style.display = hasBoost() ? "block" : "none";
+}
+function hideFlightControls() {
+  joyEl.classList.remove("show"); boostBtn.classList.remove("show"); boostHeld = false;
+  boostBtn.classList.remove("active");
+}
 
 // ---------- Loop ----------
 let last = 0;
@@ -650,6 +702,8 @@ function goAim() {
   state = "aim";
   hideAllOverlays();
   hud.classList.remove("hidden");
+  hideFlightControls();
+  fuelWrap.style.display = "block";          // reused as the launch power meter
   fuelFill.style.width = "0%";
   fuelLabel.textContent = "DRAG BACK & RELEASE TO LAUNCH";
   aimHintEl.textContent = "Drag back & release to launch ✈";
