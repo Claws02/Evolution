@@ -112,11 +112,13 @@ const winListeners = {};
 const window = {
   innerWidth: 390, innerHeight: 844, devicePixelRatio: 3,
   addEventListener(t, fn) { (winListeners[t] = winListeners[t] || []).push(fn); },
+  confirm: () => true,
 };
 const localStore = new Map();
 const localStorage = {
   getItem: k => (localStore.has(k) ? localStore.get(k) : null),
   setItem: (k, v) => localStore.set(k, String(v)),
+  removeItem: k => localStore.delete(k),
 };
 let nowMs = 0;
 const performanceMock = { now: () => nowMs };
@@ -171,28 +173,26 @@ touch("touchmove", 195, 700);    // drag down ~278px
 touch("touchend", 195, 700);
 assert(true, "launch input processed (no throw)");
 
-// helpers for the new controls
-function joyEvt(type, id, x, y) {
-  document.getElementById("joy")._fire(type, { preventDefault() {}, changedTouches: [{ identifier: id, clientX: x, clientY: y }] });
+// helpers for the new dynamic canvas controls (right half = joystick, left half = boost)
+function canvasTouch(type, list) {
+  document.getElementById("scene")._fire(type, { preventDefault() {}, changedTouches: list, touches: list });
 }
-function boostEvt(type) { document.getElementById("boostBtn")._fire(type, { preventDefault() {} }); }
+// boost finger (id 1) on the left; joystick finger (id 2) on the right, pushed down to climb
+const W = window.innerWidth;
+canvasTouch("touchstart", [{ identifier: 1, clientX: 60, clientY: 600 }, { identifier: 2, clientX: 320, clientY: 420 }]);
+assert(document.getElementById("joy").classList.contains("show"), "joystick appears under finger (right side)");
+assert(document.getElementById("boostBtn").classList.contains("show"), "boost appears under finger (left side, boost owned)");
 
-assert(document.getElementById("joy").classList.contains("show"), "joystick shown during flight");
-assert(document.getElementById("boostBtn").classList.contains("show"), "boost button shown (boost upgrade owned)");
-
-// 5) Flight: press boost + push the joystick down (climb), then release and glide to landing
+// 5) Flight: hold boost + push the joystick down (climb), then release and glide to landing
 let landed = false, maxZ = 0, maxFrames = 12000;
 try {
-  boostEvt("touchstart");
-  joyEvt("touchstart", 1, 60, 110); // below center -> climb
   for (let i = 0; i < 1200 && !landed; i++) {
-    joyEvt("touchmove", 1, 60, 110);
+    canvasTouch("touchmove", [{ identifier: 2, clientX: 320, clientY: 520 }]); // below spawn -> climb
     frame(16);
     maxZ = Math.max(maxZ, readDistance());
     if (resultShown()) { landed = true; break; }
   }
-  boostEvt("touchend");
-  joyEvt("touchend", 1, 60, 60);
+  canvasTouch("touchend", [{ identifier: 1, clientX: 60, clientY: 600 }, { identifier: 2, clientX: 320, clientY: 520 }]);
   // glide until it lands
   for (let i = 0; i < maxFrames && !landed; i++) {
     frame(16);
@@ -215,6 +215,12 @@ if (landed) {
 fire("againBtn", "click");
 try { frames(5); assert(true, "relaunch after result works"); }
 catch (e) { assert(false, "relaunch threw: " + e.message); }
+
+// 7) Reset button wipes progress
+fire("resetBtn", "click");
+assert(localStore.get("pe3d_save_v1") == null || JSON.parse(localStore.get("pe3d_save_v1") || "{}").coins === 0,
+  "reset cleared coins");
+assert(document.getElementById("bestTitle")._text === "0", "reset cleared best distance display");
 
 console.log(failures === 0 ? "\nALL TESTS PASSED ✅" : `\n${failures} TEST(S) FAILED ❌`);
 process.exit(failures === 0 ? 0 : 1);

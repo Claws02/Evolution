@@ -210,24 +210,36 @@ function resetCoins() {
   for (const c of coins) placeCoin(c);
 }
 
-// ---------- Ground shadow (altitude depth cue) ----------
+// ---------- Ground shadow + altitude line (depth cues) ----------
 const shadowMesh = (() => {
   const geo = new THREE.PlaneGeometry(1, 1);
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshBasicMaterial({ map: makeShadowTexture(), transparent: true, depthWrite: false, opacity: 0.45 });
+  const mat = new THREE.MeshBasicMaterial({ map: makeShadowTexture(), transparent: true, depthWrite: false, opacity: 0.6 });
+  const m = new THREE.Mesh(geo, mat);
+  scene.add(m);
+  return m;
+})();
+// thin vertical pole from the plane down to its shadow — makes altitude unmistakable
+const altLine = (() => {
+  const geo = new THREE.CylinderGeometry(0.16, 0.16, 1, 6);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x10202f, transparent: true, opacity: 0.28, depthWrite: false });
   const m = new THREE.Mesh(geo, mat);
   scene.add(m);
   return m;
 })();
 function updateShadow() {
   const gh = terrainH(pos.x, pos.z);
-  const alt = clamp(pos.y - gh, 0, 160);
-  const k = clamp(alt / 130, 0, 1);
+  const alt = clamp(pos.y - gh, 0, 200);
+  const k = clamp(alt / 150, 0, 1);
   shadowMesh.position.set(pos.x, gh + 0.2, pos.z);
-  const s = lerp(9, 26, k);          // grows + softens with altitude
+  const s = lerp(7, 20, k);              // tighter when low, larger when high
   shadowMesh.scale.set(s, s, s);
-  shadowMesh.material.opacity = lerp(0.5, 0.06, k);
+  shadowMesh.material.opacity = lerp(0.62, 0.16, k); // stays visible even up high
   shadowMesh.visible = true;
+  // altitude pole
+  altLine.position.set(pos.x, gh + alt / 2, pos.z);
+  altLine.scale.set(1, Math.max(0.01, alt), 1);
+  altLine.visible = alt > 2;
 }
 
 // ---------- City (Boston-style irregular blocks to weave between) ----------
@@ -386,8 +398,8 @@ function forwardVec(out) {
 // ---------- Launch ----------
 function launch(power, launchPitch) {
   // Launch Power dominates initial speed; a fresh plane is slow and won't go far without upgrades.
-  const maxSpeed = 78 + lvl("power") * 22 + save.tier * 8;
-  const speed = lerp(44, maxSpeed, power);
+  const maxSpeed = 70 + lvl("power") * 22 + save.tier * 8;
+  const speed = lerp(40, maxSpeed, power);
   pitch = launchPitch; yaw = 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
@@ -399,7 +411,7 @@ function launch(power, launchPitch) {
 }
 
 // ---------- Physics ----------
-const G = 25, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
+const G = 26, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
 function updateFlight(dt) {
   // input → target attitude (virtual joystick)
   let targetPitch = pitch * 0.985; // relax toward level when not steering
@@ -429,18 +441,18 @@ function updateFlight(dt) {
   // gravity
   vel.y -= G * dt;
 
-  // pitch trades altitude for speed: nose DOWN accelerates along heading, nose UP decelerates
-  vel.addScaledVector(f, -Math.sin(pitch) * G * 0.65 * dt);
+  // pitch trades altitude for speed: nose DOWN accelerates strongly, nose UP decelerates
+  vel.addScaledVector(f, -Math.sin(pitch) * G * 1.25 * dt);
 
   // lift: horizontal speed sustains altitude. Weak by default — Wings upgrades matter a lot.
   const speedH = Math.hypot(vel.x, vel.z);
-  const lift = clamp(speedH * (0.03 + lvl("wings") * 0.030), 0, G * 0.97);
+  const lift = clamp(speedH * (0.022 + lvl("wings") * 0.030), 0, G * 0.97);
   vel.y += lift * dt;
 
   // aerodynamic alignment: send velocity where the nose points (so pitch actually steers the dive)
   speed = vel.length();
   dTmp.copy(f).multiplyScalar(speed);
-  vel.lerp(dTmp, Math.min(1, 2.0 * dt));
+  vel.lerp(dTmp, Math.min(1, 2.6 * dt));
 
   // drag (much less with Aerodynamics upgrades)
   const drag = 0.25 - lvl("aero") * 0.022;
@@ -629,17 +641,17 @@ function showAimPreview() {
   fuelLabel.textContent = "POWER " + Math.round(power * 100) + "% — release!";
   aimHintEl.textContent = "";
 }
-canvas.addEventListener("touchstart", e => { e.preventDefault(); onDown(e); }, { passive: false });
-canvas.addEventListener("touchmove",  e => { e.preventDefault(); onMove(e); }, { passive: false });
-canvas.addEventListener("touchend",   e => { e.preventDefault(); onUp(e); }, { passive: false });
-canvas.addEventListener("touchcancel",e => { e.preventDefault(); onUp(e); }, { passive: false });
-canvas.addEventListener("mousedown", onDown);
-window.addEventListener("mousemove", onMove);
-window.addEventListener("mouseup", onUp);
+canvas.addEventListener("touchstart", e => { e.preventDefault(); if (state === "aim") onDown(e); else if (state === "flight") flightStart(e.changedTouches); }, { passive: false });
+canvas.addEventListener("touchmove",  e => { e.preventDefault(); if (state === "aim") onMove(e); else if (state === "flight") flightMove(e.changedTouches); }, { passive: false });
+canvas.addEventListener("touchend",   e => { e.preventDefault(); if (state === "aim") onUp(e); else if (state === "flight") flightEnd(e.changedTouches); }, { passive: false });
+canvas.addEventListener("touchcancel",e => { e.preventDefault(); if (state === "aim") onUp(e); else if (state === "flight") flightEnd(e.changedTouches); }, { passive: false });
+canvas.addEventListener("mousedown", e => { if (state === "aim") onDown(e); else if (state === "flight") flightMouseDown(e); });
+window.addEventListener("mousemove", e => { if (state === "aim") onMove(e); else if (state === "flight") flightMouseMove(e); });
+window.addEventListener("mouseup",   e => { if (state === "aim") onUp(e); else if (state === "flight") flightMouseUp(e); });
 
-// ---------- Virtual joystick (bottom-right) + boost button (bottom-left) ----------
-const joy = { active: false, id: null, x: 0, y: 0, cx: 0, cy: 0, r: 60 };
-let boostHeld = false;
+// ---------- Dynamic joystick (right half) + boost (left half): touch anywhere ----------
+const joy = { active: false, id: null, x: 0, y: 0, cx: 0, cy: 0, r: 62 };
+let boostHeld = false, boostId = null;
 const joyEl = document.getElementById("joy");
 const joyKnob = document.getElementById("joyKnob");
 const boostBtn = document.getElementById("boostBtn");
@@ -652,40 +664,55 @@ function joyMoveTo(x, y) {
   joy.x = dx / joy.r; joy.y = dy / joy.r;
   joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
 }
-function joyStart(x, y) {
-  const r = joyEl.getBoundingClientRect ? joyEl.getBoundingClientRect() : { left: x, top: y, width: 0, height: 0 };
-  joy.cx = r.left + r.width / 2; joy.cy = r.top + r.height / 2; joy.active = true;
-  joyMoveTo(x, y);
+function joyStartAt(x, y) {
+  joy.cx = x; joy.cy = y; joy.active = true; joy.x = 0; joy.y = 0;
+  joyEl.style.left = (x - 66) + "px"; joyEl.style.top = (y - 66) + "px";
+  joyEl.style.right = "auto"; joyEl.style.bottom = "auto";
+  joyKnob.style.transform = "translate(0px,0px)";
+  joyEl.classList.add("show");
 }
-function joyReset() { joy.active = false; joy.id = null; joy.x = 0; joy.y = 0; if (joyKnob) joyKnob.style.transform = "translate(0px,0px)"; }
+function joyReset() {
+  joy.active = false; joy.id = null; joy.x = 0; joy.y = 0;
+  if (joyKnob) joyKnob.style.transform = "translate(0px,0px)";
+  joyEl.classList.remove("show");
+}
+function boostStartAt(x, y) {
+  if (!hasBoost()) return false;
+  boostHeld = true;
+  boostBtn.style.left = (x - 48) + "px"; boostBtn.style.top = (y - 48) + "px";
+  boostBtn.style.right = "auto"; boostBtn.style.bottom = "auto";
+  boostBtn.classList.add("show", "active");
+  return true;
+}
+function boostStop() { boostHeld = false; boostId = null; boostBtn.classList.remove("active", "show"); }
 
-joyEl.addEventListener("touchstart", e => { e.preventDefault(); const t = e.changedTouches[0]; joy.id = t.identifier; joyStart(t.clientX, t.clientY); }, { passive: false });
-joyEl.addEventListener("touchmove",  e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === joy.id) joyMoveTo(t.clientX, t.clientY); }, { passive: false });
-joyEl.addEventListener("touchend",   e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === joy.id) joyReset(); }, { passive: false });
-joyEl.addEventListener("touchcancel",e => { e.preventDefault(); joyReset(); }, { passive: false });
-// mouse (desktop)
-let joyMouse = false;
-joyEl.addEventListener("mousedown", e => { e.preventDefault(); joyMouse = true; joyStart(e.clientX, e.clientY); });
-window.addEventListener("mousemove", e => { if (joyMouse) joyMoveTo(e.clientX, e.clientY); });
-window.addEventListener("mouseup", () => { if (joyMouse) { joyMouse = false; joyReset(); } });
-
-function boostOn(e) { if (e) e.preventDefault(); boostHeld = true; boostBtn.classList.add("active"); }
-function boostOff(e) { if (e) e.preventDefault(); boostHeld = false; boostBtn.classList.remove("active"); }
-boostBtn.addEventListener("touchstart", boostOn, { passive: false });
-boostBtn.addEventListener("touchend", boostOff, { passive: false });
-boostBtn.addEventListener("touchcancel", boostOff, { passive: false });
-boostBtn.addEventListener("mousedown", boostOn);
-window.addEventListener("mouseup", () => boostOff());
+function flightStart(list) {
+  for (const t of list) {
+    if (t.clientX >= window.innerWidth * 0.5) { if (joy.id === null) { joy.id = t.identifier; joyStartAt(t.clientX, t.clientY); } }
+    else { if (boostId === null && boostStartAt(t.clientX, t.clientY)) boostId = t.identifier; }
+  }
+}
+function flightMove(list) { for (const t of list) if (t.identifier === joy.id) joyMoveTo(t.clientX, t.clientY); }
+function flightEnd(list) {
+  for (const t of list) {
+    if (t.identifier === joy.id) joyReset();
+    if (t.identifier === boostId) boostStop();
+  }
+}
+// mouse (desktop, single pointer)
+let mouseRole = null;
+function flightMouseDown(e) {
+  if (e.clientX >= window.innerWidth * 0.5) { mouseRole = "joy"; joy.id = -1; joyStartAt(e.clientX, e.clientY); }
+  else if (boostStartAt(e.clientX, e.clientY)) { mouseRole = "boost"; boostId = -1; }
+}
+function flightMouseMove(e) { if (mouseRole === "joy") joyMoveTo(e.clientX, e.clientY); }
+function flightMouseUp() { if (mouseRole === "joy") joyReset(); if (mouseRole === "boost") boostStop(); mouseRole = null; }
 
 function showFlightControls() {
-  joyReset(); joyEl.classList.add("show");
-  if (hasBoost()) boostBtn.classList.add("show"); else boostBtn.classList.remove("show");
+  joyReset(); boostStop();
   fuelWrap.style.display = hasBoost() ? "block" : "none";
 }
-function hideFlightControls() {
-  joyEl.classList.remove("show"); boostBtn.classList.remove("show"); boostHeld = false;
-  boostBtn.classList.remove("active");
-}
+function hideFlightControls() { joyReset(); boostStop(); }
 
 // ---------- Loop ----------
 let last = 0;
@@ -761,6 +788,13 @@ document.getElementById("playBtn").addEventListener("click", goHangar);
 document.getElementById("launchBtn").addEventListener("click", goAim);
 document.getElementById("againBtn").addEventListener("click", goAim);
 document.getElementById("shopBtn").addEventListener("click", goHangar);
+document.getElementById("resetBtn").addEventListener("click", () => {
+  if (!(window.confirm && window.confirm("Reset all progress? This clears coins, upgrades, evolution, and your best distance."))) return;
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  loadSave();
+  buildPlane(save.tier);
+  document.getElementById("bestTitle").textContent = save.best;
+});
 
 // ---------- Boot ----------
 loadSave();

@@ -5,7 +5,7 @@ A **3D** browser slingshot launch-and-fly distance game, built to play on an iPh
 ## How to play
 
 1. **Launch** — on the runway, **drag back and release** (like a slingshot). A power meter fills as you pull; a harder pull launches faster and steeper.
-2. **Fly** — once airborne, steer with the **on-screen joystick (bottom-right)**: push **down to climb, up to dive** (flight-sim style), left/right to bank. Once you've bought a **Boost** upgrade, a **boost button appears (bottom-left)** — hold it to burn fuel for thrust. A **shadow** on the ground shows your altitude, so you can judge when you're about to touch down. Real arcade flight physics: thrust, gravity, drag, lift, and terrain bounces. **A stock plane barely flies — upgrades are what unlock real distance.**
+2. **Fly** — once airborne, touch **anywhere on the right half** to spawn a joystick under your finger: push **down to climb, up to dive** (flight-sim style), left/right to bank. Touch **anywhere on the left half** to **boost** (once you've bought a Boost upgrade) — it burns fuel for thrust. A **shadow + altitude line** on the ground show exactly how high you are. Real arcade flight physics: thrust, gravity, drag, lift, and terrain bounces. **A stock plane barely flies — upgrades are what unlock real distance.**
 3. **Weave through the city** — a winding, Boston-style skyline rises ahead. Thread the gaps between buildings; clipping one knocks you back hard and bleeds your speed.
 4. **Collect coins** floating through the 3D sky — they trace the safe lane between the buildings. Grab the **flame fuel pickups** to refill your boost tank mid-flight.
 
