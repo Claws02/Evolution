@@ -135,13 +135,14 @@
   #aimHint { position:absolute; left:0; right:0; top:46%; text-align:center; font-weight:700; font-size:16px;
              text-shadow:0 2px 6px rgba(0,0,0,.5); }
 
-  /* Dynamic joystick — floats under your finger (visual only; canvas captures touches) */
-  #joy { position:absolute; display:none; pointer-events:none; left:0; top:0;
-         width:132px; height:132px; border-radius:50%;
+  /* Stationary joystick — fixed in a thumb-friendly spot (visual only; canvas captures touches) */
+  #joy { position:absolute; display:none; pointer-events:none;
+         right: calc(env(safe-area-inset-right) + 34px); bottom: calc(env(safe-area-inset-bottom) + 104px);
+         width:138px; height:138px; border-radius:50%;
          background:rgba(255,255,255,.12); border:2px solid rgba(255,255,255,.35);
          box-shadow: inset 0 0 24px rgba(0,0,0,.18); }
   #joy.show { display:block; }
-  #joyKnob { position:absolute; left:50%; top:50%; width:60px; height:60px; margin:-30px 0 0 -30px;
+  #joyKnob { position:absolute; left:50%; top:50%; width:62px; height:62px; margin:-31px 0 0 -31px;
              border-radius:50%; background:radial-gradient(circle at 38% 32%, #ffffff, #c9dcf0 70%, #9ab4d4);
              box-shadow:0 4px 12px rgba(0,0,0,.35); will-change:transform; }
   /* Dynamic boost — appears where you press on the left (visual only) */

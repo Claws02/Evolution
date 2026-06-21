@@ -1136,32 +1136,33 @@ canvas.addEventListener("mousedown", e => { if (state === "aim") onDown(e); else
 window.addEventListener("mousemove", e => { if (state === "aim") onMove(e); else if (state === "flight") flightMouseMove(e); });
 window.addEventListener("mouseup",   e => { if (state === "aim") onUp(e); else if (state === "flight") flightMouseUp(e); });
 
-// ---------- Dynamic joystick (right half) + boost (left half): touch anywhere ----------
-const joy = { active: false, id: null, x: 0, y: 0, cx: 0, cy: 0, r: 62 };
+// ---------- Stationary joystick (right half) + dynamic boost (left half) ----------
+// The joystick stays put in a thumb-friendly spot; pressing anywhere on the right
+// half steers relative to its fixed center (direction + distance = how the plane flies).
+const joy = { active: false, id: null, x: 0, y: 0, cx: 0, cy: 0, r: 115 };
 let boostHeld = false, boostId = null;
 const joyEl = document.getElementById("joy");
 const joyKnob = document.getElementById("joyKnob");
 const boostBtn = document.getElementById("boostBtn");
 const hasBoost = () => lvl("boost") >= 1;
+const KNOB_MAX = 46; // how far the visible knob can travel from the base center
 
-function joyMoveTo(x, y) {
-  let dx = x - joy.cx, dy = y - joy.cy;
-  const len = Math.hypot(dx, dy);
-  if (len > joy.r) { dx *= joy.r / len; dy *= joy.r / len; }
-  joy.x = dx / joy.r; joy.y = dy / joy.r;
-  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+function recomputeJoyCenter() {
+  const r = joyEl.getBoundingClientRect ? joyEl.getBoundingClientRect() : null;
+  if (r && r.width) { joy.cx = r.left + r.width / 2; joy.cy = r.top + r.height / 2; }
+  else { joy.cx = window.innerWidth * 0.78; joy.cy = window.innerHeight * 0.72; }
 }
-function joyStartAt(x, y) {
-  joy.cx = x; joy.cy = y; joy.active = true; joy.x = 0; joy.y = 0;
-  joyEl.style.left = (x - 66) + "px"; joyEl.style.top = (y - 66) + "px";
-  joyEl.style.right = "auto"; joyEl.style.bottom = "auto";
-  joyKnob.style.transform = "translate(0px,0px)";
-  joyEl.classList.add("show");
+function joyMoveTo(x, y) {
+  const dx = x - joy.cx, dy = y - joy.cy;
+  joy.x = clamp(dx / joy.r, -1, 1);
+  joy.y = clamp(dy / joy.r, -1, 1);
+  let kx = dx, ky = dy; const kl = Math.hypot(dx, dy);
+  if (kl > KNOB_MAX) { kx *= KNOB_MAX / kl; ky *= KNOB_MAX / kl; }
+  joyKnob.style.transform = `translate(${kx}px, ${ky}px)`;
 }
 function joyReset() {
   joy.active = false; joy.id = null; joy.x = 0; joy.y = 0;
   if (joyKnob) joyKnob.style.transform = "translate(0px,0px)";
-  joyEl.classList.remove("show");
 }
 function boostStartAt(x, y) {
   if (!hasBoost()) return false;
@@ -1175,8 +1176,11 @@ function boostStop() { boostHeld = false; boostId = null; boostBtn.classList.rem
 
 function flightStart(list) {
   for (const t of list) {
-    if (t.clientX >= window.innerWidth * 0.5) { if (joy.id === null) { joy.id = t.identifier; joyStartAt(t.clientX, t.clientY); } }
-    else { if (boostId === null && boostStartAt(t.clientX, t.clientY)) boostId = t.identifier; }
+    if (t.clientX >= window.innerWidth * 0.5) {
+      if (joy.id === null) { joy.id = t.identifier; joy.active = true; recomputeJoyCenter(); joyMoveTo(t.clientX, t.clientY); }
+    } else {
+      if (boostId === null && boostStartAt(t.clientX, t.clientY)) boostId = t.identifier;
+    }
   }
 }
 function flightMove(list) { for (const t of list) if (t.identifier === joy.id) joyMoveTo(t.clientX, t.clientY); }
@@ -1189,7 +1193,7 @@ function flightEnd(list) {
 // mouse (desktop, single pointer)
 let mouseRole = null;
 function flightMouseDown(e) {
-  if (e.clientX >= window.innerWidth * 0.5) { mouseRole = "joy"; joy.id = -1; joyStartAt(e.clientX, e.clientY); }
+  if (e.clientX >= window.innerWidth * 0.5) { mouseRole = "joy"; joy.id = -1; joy.active = true; recomputeJoyCenter(); joyMoveTo(e.clientX, e.clientY); }
   else if (boostStartAt(e.clientX, e.clientY)) { mouseRole = "boost"; boostId = -1; }
 }
 function flightMouseMove(e) { if (mouseRole === "joy") joyMoveTo(e.clientX, e.clientY); }
@@ -1197,9 +1201,10 @@ function flightMouseUp() { if (mouseRole === "joy") joyReset(); if (mouseRole ==
 
 function showFlightControls() {
   joyReset(); boostStop();
+  joyEl.classList.add("show"); recomputeJoyCenter();   // joystick stays visible & stationary
   fuelWrap.style.display = hasBoost() ? "block" : "none";
 }
-function hideFlightControls() { joyReset(); boostStop(); }
+function hideFlightControls() { joyReset(); boostStop(); joyEl.classList.remove("show"); }
 
 // ---------- Loop ----------
 let last = 0;
