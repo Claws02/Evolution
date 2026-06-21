@@ -63,7 +63,7 @@ const THREE = {
   MeshLambertMaterial: class { constructor() {} },
   MeshStandardMaterial: class { constructor() {} },
   CanvasTexture: class { constructor() {} },
-  Sprite: class { constructor() { Object.assign(this, obj3d()); } },
+  Sprite: class { constructor(m) { Object.assign(this, obj3d()); this.material = m || {}; } },
   Mesh: class { constructor(g, m) { Object.assign(this, obj3d()); this.geometry = g; this.material = m; } },
   Group: class { constructor() { Object.assign(this, obj3d()); } },
   PlaneGeometry: class { constructor(w, d, ws = 1, ds = 1) { Object.assign(this, geo()); this.attributes = { position: makeBufferAttr((ws + 1) * (ds + 1)) };
@@ -125,7 +125,7 @@ const performanceMock = { now: () => nowMs };
 
 // Seed a save with coins + some upgrades so we exercise tier>0 (bigger plane) and the shop.
 localStore.set("pe3d_save_v1", JSON.stringify({
-  coins: 100000, best: 0, up: { power: 1, boost: 1, fuel: 1, aero: 1, wings: 1 }, // total 5 -> tier 1
+  coins: 100000, best: 1500, up: { power: 1, boost: 1, fuel: 1, aero: 1, wings: 1 }, // best 1500 -> tier 2
 }));
 
 // expose globals
@@ -159,7 +159,8 @@ catch (e) { assert(false, "title frames threw: " + e.message); }
 // 2) Play -> hangar, shop renders, tier reflects seeded upgrades (12 levels -> tier 3)
 fire("playBtn", "click");
 assert(!document.getElementById("hangarScreen").classList.contains("hidden"), "hangar screen visible after Play");
-assert(document.getElementById("shop").children.length === 5, "hangar shop rendered 5 upgrade rows");
+assert(document.getElementById("shop").children.length === 7, "hangar shop rendered 7 upgrade rows");
+assert(document.getElementById("missions")._html.indexOf("MISSIONS") >= 0, "missions panel rendered in hangar");
 assert(document.getElementById("evoName")._text.length > 0, "evolution name shown in hangar: " + document.getElementById("evoName")._text);
 
 // 3) Launch -> aim

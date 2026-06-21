@@ -81,6 +81,21 @@
   .up .buy:active:not(:disabled) { transform: translateY(3px); box-shadow:0 1px 0 #b8742a; }
   .up .buy .c { display:inline-flex; align-items:center; gap:4px; }
   .up .buy .coin { width:13px; height:13px; }
+
+  /* Missions */
+  #missions { width:100%; max-width:460px; display:flex; flex-direction:column; gap:6px;
+              background:rgba(10,30,60,.4); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:10px 12px; }
+  #missions .mTitle { font-size:11px; font-weight:800; letter-spacing:2px; opacity:.7; }
+  #missions .mRow { display:flex; justify-content:space-between; align-items:center; font-size:13px; }
+  #missions .mRew { display:inline-flex; align-items:center; gap:4px; color:#ffe27a; font-weight:800; }
+  #missions .mRew .coin { width:12px; height:12px; }
+
+  /* Daily toast */
+  #dailyToast { position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 16px); transform:translate(-50%,-120%);
+                background:linear-gradient(#ffe27a,#ffb43d); color:#3a1c00; font-weight:800; font-size:14px;
+                padding:10px 18px; border-radius:999px; box-shadow:0 6px 16px rgba(0,0,0,.35); z-index:30;
+                transition:transform .35s ease; pointer-events:none; }
+  #dailyToast.show { transform:translate(-50%,0); }
   .up.maxed .buy { background:#7dffb0; color:#06311c; box-shadow:0 4px 0 #3aa56b; }
 
   .evoBadge { font-size:13px; letter-spacing:1px; opacity:.95; text-transform:uppercase; }
@@ -155,6 +170,7 @@
 <div id="hangarScreen" class="overlay hidden">
   <div class="evoBadge">Tier <span id="evoTier">1</span> · <span id="evoName">Paper Glider</span></div>
   <div class="coinsRow"><span class="coin"></span><span id="coinCount">0</span></div>
+  <div id="missions"></div>
   <div class="scroll" id="shop"></div>
   <button id="launchBtn">TO THE RUNWAY ✈</button>
   <p class="tag">Best distance: <span id="bestHangar">0</span> m</p>
@@ -169,11 +185,14 @@
     <div class="row2" style="justify-content:space-between;opacity:.85;font-size:14px"><span>Best distance</span><span><span id="runBest">0</span> m</span></div>
   </div>
   <div id="evoNotice" class="evoBadge hidden">⭐ EVOLVED — <span id="evoNoticeName"></span>!</div>
+  <div id="missionResult" class="evoBadge hidden" style="color:#7dffb0"></div>
   <div class="row2">
     <button id="shopBtn" class="secondary">UPGRADE</button>
     <button id="againBtn">LAUNCH ✈</button>
   </div>
 </div>
+
+<div id="dailyToast"></div>
 
 <script src="vendor/three.min.js"></script>
 <script src="game.js"></script>

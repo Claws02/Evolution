@@ -15,14 +15,69 @@ if (typeof THREE === "undefined") {
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
+const choice = arr => arr[Math.floor(Math.random() * arr.length)];
 const TAU = Math.PI * 2, DEG = Math.PI / 180;
 
+// ---------- Sound (WebAudio) + haptics ----------
+const Sound = (() => {
+  let ctx = null;
+  function ac() {
+    if (ctx) return ctx;
+    const AC = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+    if (!AC) return null;
+    try { ctx = new AC(); } catch (e) { ctx = null; }
+    return ctx;
+  }
+  function tone(freq, dur, type, gain, slideTo) {
+    const c = ac(); if (!c) return;
+    if (c.state === "suspended") { try { c.resume(); } catch (e) {} }
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine"; o.frequency.setValueAtTime(freq, c.currentTime);
+    if (slideTo) o.frequency.linearRampToValueAtTime(slideTo, c.currentTime + dur);
+    g.gain.setValueAtTime(gain || 0.18, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(); o.stop(c.currentTime + dur);
+  }
+  function noise(dur, gain) {
+    const c = ac(); if (!c) return;
+    if (c.state === "suspended") { try { c.resume(); } catch (e) {} }
+    const n = Math.max(1, Math.floor(c.sampleRate * dur));
+    const buf = c.createBuffer(1, n, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = c.createBufferSource(); src.buffer = buf;
+    const g = c.createGain(); g.gain.setValueAtTime(gain || 0.3, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    src.connect(g); g.connect(c.destination); src.start();
+  }
+  return {
+    resume() { const c = ac(); if (c && c.state === "suspended") { try { c.resume(); } catch (e) {} } },
+    coin()   { tone(900, 0.10, "square", 0.10, 1350); },
+    ring()   { tone(440, 0.18, "sawtooth", 0.16, 950); },
+    fuel()   { tone(330, 0.16, "sine", 0.16, 680); },
+    boost()  { noise(0.3, 0.10); },
+    crash()  { noise(0.5, 0.5); tone(130, 0.45, "sawtooth", 0.3, 40); },
+    evolve() { tone(523, 0.5, "triangle", 0.2, 1046); },
+  };
+})();
+function haptic(p) { try { if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
 // ---------- Terrain height field (world-anchored, infinite illusion) ----------
+// Amplitude shifts with the biome: coast flattens, mountains rise (smoothly blended).
+function terrainAmp(z) {
+  const pts = [[0, 1.0], [900, 0.45], [1800, 2.7], [3000, 1.3]];
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (z < pts[i + 1][0]) return lerp(pts[i][1], pts[i + 1][1], clamp((z - pts[i][0]) / (pts[i + 1][0] - pts[i][0]), 0, 1));
+  }
+  return 1.3;
+}
 function terrainH(x, z) {
   let h = Math.sin(x * 0.012) * 4
         + Math.sin(z * 0.010) * 6
         + Math.sin((x + z) * 0.006) * 9
         + Math.sin(z * 0.028 + x * 0.01) * 2;
+  h *= terrainAmp(z);
   // flatten the runway area around the start
   const flat = clamp(z / 130, 0, 1);
   return h * flat;
@@ -32,11 +87,13 @@ function laneX(z) { return Math.sin(z * 0.008) * 42 + Math.sin(z * 0.021 + 1.3) 
 
 // ---------- Upgrades & evolution ----------
 const UPGRADES = [
-  { key: "power", ico: "🚀", name: "Launch Power",  max: 8, baseCost: 40, growth: 1.55 },
-  { key: "boost", ico: "🔥", name: "Boost Thrust",  max: 8, baseCost: 50, growth: 1.55 },
-  { key: "fuel",  ico: "⛽", name: "Fuel Tank",     max: 8, baseCost: 45, growth: 1.55 },
-  { key: "aero",  ico: "🪶", name: "Aerodynamics",  max: 8, baseCost: 55, growth: 1.6  },
-  { key: "wings", ico: "🛩", name: "Wings & Lift",   max: 8, baseCost: 60, growth: 1.6  },
+  { key: "power",  ico: "🚀", name: "Launch Power",    max: 8, baseCost: 40, growth: 1.55 },
+  { key: "boost",  ico: "🔥", name: "Boost Thrust",    max: 8, baseCost: 50, growth: 1.55 },
+  { key: "fuel",   ico: "⛽", name: "Fuel Tank",       max: 8, baseCost: 45, growth: 1.55 },
+  { key: "aero",   ico: "🪶", name: "Aerodynamics",    max: 8, baseCost: 55, growth: 1.6  },
+  { key: "wings",  ico: "🛩", name: "Wings & Lift",     max: 8, baseCost: 60, growth: 1.6  },
+  { key: "magnet", ico: "🧲", name: "Coin Magnet",     max: 6, baseCost: 70, growth: 1.6  },
+  { key: "mult",   ico: "✨", name: "Coin Multiplier", max: 6, baseCost: 90, growth: 1.7  },
 ];
 const TIERS = [
   { name: "Paper Glider", body: 0xeef4ff, accent: 0xb9d3ff, scale: 0.9 },
@@ -58,13 +115,20 @@ function loadSave() {
   save.best = save.best || 0;
   save.up = save.up || {};
   for (const u of UPGRADES) save.up[u.key] = save.up[u.key] || 0;
+  if (!Array.isArray(save.missions) || save.missions.length < 3) save.missions = [makeMission(), makeMission(), makeMission()];
+  save.lastDaily = save.lastDaily || "";
   save.tier = computeTier();
 }
 function persist() { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
 function lvl(k) { return save.up[k] || 0; }
 function upgradeCost(u) { return Math.round(u.baseCost * Math.pow(u.growth, lvl(u.key))); }
-function totalLevels() { return UPGRADES.reduce((s, u) => s + lvl(u.key), 0); }
-function computeTier() { return Math.min(TIERS.length - 1, Math.floor(totalLevels() / 4)); }
+// Evolution is earned by flying far: each best-distance milestone unlocks the next tier.
+const TIER_MILESTONES = [0, 400, 900, 1600, 2500, 3800, 5500];
+function computeTier() {
+  let t = 0;
+  for (let i = 0; i < TIER_MILESTONES.length && i < TIERS.length; i++) if (save.best >= TIER_MILESTONES[i]) t = i;
+  return t;
+}
 
 // ---------- Three.js setup ----------
 const canvas = document.getElementById("scene");
@@ -242,33 +306,50 @@ function updateShadow() {
   altLine.visible = alt > 2;
 }
 
-// ---------- City (Boston-style irregular blocks to weave between) ----------
+// ---------- City (Boston-style irregular blocks with windows + rooftops) ----------
+function makeWindowTexture() {
+  const c = document.createElement("canvas"); c.width = 64; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#aeb6c0"; g.fillRect(0, 0, 64, 128);          // facade
+  const cols = 5, rows = 11, mx = 7, my = 6;
+  const ww = (64 - mx * (cols + 1)) / cols, wh = (128 - my * (rows + 1)) / rows;
+  for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) {
+    const lit = Math.random();
+    g.fillStyle = lit < 0.18 ? "#fff2b0" : (lit < 0.5 ? "#3c4654" : "#5a6675");
+    g.fillRect(mx + col * (ww + mx), my + r * (wh + my), ww, wh);
+  }
+  const t = new THREE.CanvasTexture(c);
+  return t;
+}
 const CITY_HALF = 115;               // city spreads this far either side of center
 const CITY_START_Z = 170;            // open runway before the skyline begins
-const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
-const cityMats = [0x9aa3ad, 0x8b96a3, 0xb0a99b, 0xa8b0b8, 0x9d8f80, 0x7e8893]
-  .map(c => new THREE.MeshLambertMaterial({ color: c }));
+const bodyGeo = new THREE.BoxGeometry(1, 1, 1);
+const roofGeo = new THREE.BoxGeometry(1, 1, 1);
+const winTex = makeWindowTexture();
+const cityTints = [0xc8d0da, 0xb6c0cc, 0xd2c9b6, 0xc6cdd4, 0xbcae9c, 0xa9b3bd];
+const cityMats = cityTints.map(c => new THREE.MeshLambertMaterial({ color: c, map: winTex }));
+const roofMats = [0x5b636e, 0x6b5a48, 0x49525c].map(c => new THREE.MeshLambertMaterial({ color: c }));
 const BUILDING_COUNT = 70;
 const buildings = [];
 for (let i = 0; i < BUILDING_COUNT; i++) {
-  const mesh = new THREE.Mesh(buildingGeo, cityMats[i % cityMats.length]);
-  mesh.visible = false; scene.add(mesh);
-  buildings.push({ mesh, x: 0, z: 0, w: 0, d: 0, topY: 0, active: false });
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(bodyGeo, cityMats[i % cityMats.length]); grp.add(body);
+  const roof = new THREE.Mesh(roofGeo, roofMats[i % roofMats.length]); grp.add(roof);
+  grp.visible = false; scene.add(grp);
+  buildings.push({ grp, body, roof, x: 0, z: 0, w: 0, d: 0, topY: 0, active: false });
 }
 let genZ = 0, rowSlots = [];
 function buildRow(z) {
   const L = laneX(z), gap = rand(30, 46);
-  // tall "downtown" clusters appear periodically; elsewhere mid-rise
-  const downtown = Math.sin(z * 0.0032) > 0.35;
+  const downtown = Math.sin(z * 0.0032) > 0.35;   // periodic tall financial-district clusters
   const slots = [];
   let x = -CITY_HALF + rand(0, 14);
   while (x < CITY_HALF) {
     const w = rand(12, 26), d = rand(12, 26);
     const cx = x + w / 2;
-    // leave the winding street open
     if (Math.abs(cx - L) > gap) {
       let h = downtown ? rand(45, 130) : rand(16, 60);
-      if (Math.random() < 0.12) h += rand(20, 60); // occasional spike
+      if (Math.random() < 0.12) h += rand(20, 60);
       slots.push({ x: cx, w, d, h });
     }
     x += w + rand(8, 24);
@@ -276,17 +357,25 @@ function buildRow(z) {
   return slots;
 }
 function nextPlacement() {
-  if (rowSlots.length === 0) { genZ += rand(40, 78); rowSlots = buildRow(genZ); }
+  let guard = 0;
+  while (rowSlots.length === 0) {
+    genZ += rand(40, 78);
+    if (genZ > CITY_END) return null;             // city ends; no more buildings past it
+    rowSlots = buildRow(genZ);
+    if (++guard > 40) return null;
+  }
   const s = rowSlots.pop();
   return { x: s.x, z: genZ, w: s.w, d: s.d, h: s.h };
 }
 function placeBuilding(b) {
   const p = nextPlacement();
+  if (!p) { b.active = false; b.grp.visible = false; b.z = 1e7; return; }
   const gh = terrainH(p.x, p.z);
   b.x = p.x; b.z = p.z; b.w = p.w; b.d = p.d; b.topY = gh + p.h; b.active = true;
-  b.mesh.scale.set(p.w, p.h, p.d);
-  b.mesh.position.set(p.x, gh + p.h / 2, p.z);
-  b.mesh.visible = true;
+  b.body.scale.set(p.w, p.h, p.d); b.body.position.y = p.h / 2;
+  const rh = rand(1.5, 4.5);
+  b.roof.scale.set(p.w * 1.05, rh, p.d * 1.05); b.roof.position.y = p.h + rh / 2;
+  b.grp.position.set(p.x, gh, p.z); b.grp.visible = true;
 }
 function resetCity() {
   genZ = CITY_START_Z; rowSlots = [];
@@ -321,6 +410,197 @@ function placeFuel(f) {
 function resetFuels() {
   fuelFarZ = 130;
   for (const f of fuels) placeFuel(f);
+}
+
+// ---------- Particle / debris pool ----------
+const partGeo = new THREE.BoxGeometry(1, 1, 1);
+const PART_COUNT = 70;
+const parts = [];
+for (let i = 0; i < PART_COUNT; i++) {
+  const m = new THREE.Mesh(partGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true }));
+  m.visible = false; scene.add(m);
+  parts.push({ m, vx: 0, vy: 0, vz: 0, life: 0, max: 1, active: false });
+}
+let partCursor = 0;
+function spawnBurst(x, y, z, color, count, speed, size) {
+  for (let i = 0; i < count; i++) {
+    const p = parts[partCursor]; partCursor = (partCursor + 1) % PART_COUNT;
+    p.active = true; p.life = p.max = rand(0.4, 0.9);
+    if (p.m.material.color && p.m.material.color.setHex) p.m.material.color.setHex(color);
+    const s = size || rand(0.4, 1.1); p.m.scale.set(s, s, s);
+    p.m.position.set(x, y, z); p.m.visible = true; p.m.material.opacity = 1;
+    const a = rand(0, TAU), sp = speed || rand(8, 26);
+    p.vx = Math.cos(a) * sp; p.vy = rand(2, 1) + Math.abs(rand(2, 18)); p.vz = Math.sin(a) * sp;
+  }
+}
+function updateParts(dt) {
+  for (const p of parts) {
+    if (!p.active) continue;
+    p.life -= dt; if (p.life <= 0) { p.active = false; p.m.visible = false; continue; }
+    p.vy -= 32 * dt;
+    p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.m.position.z += p.vz * dt;
+    p.m.material.opacity = clamp(p.life / p.max, 0, 1);
+    p.m.rotation.x += dt * 4; p.m.rotation.y += dt * 5;
+  }
+}
+
+// ---------- Rings / boost gates ----------
+const ringGeo = new THREE.TorusGeometry(7, 0.7, 8, 24);
+const ringMat = new THREE.MeshStandardMaterial({ color: 0x49e0ff, emissive: 0x0c5066, emissiveIntensity: 0.7, metalness: 0.4, roughness: 0.4 });
+const RING_COUNT = 6, RING_R = 7;
+const rings = [];
+for (let i = 0; i < RING_COUNT; i++) {
+  const m = new THREE.Mesh(ringGeo, ringMat); m.visible = false; scene.add(m);
+  rings.push({ m, x: 0, y: 0, z: 0, passed: false });
+}
+let ringFarZ = 0;
+function placeRing(r) {
+  ringFarZ += rand(130, 240);
+  r.z = ringFarZ; r.x = laneX(r.z) + rand(-14, 14); r.y = terrainH(r.x, r.z) + rand(22, 55);
+  r.passed = false; r.m.visible = true; r.m.position.set(r.x, r.y, r.z);
+}
+function resetRings() { ringFarZ = 120; for (const r of rings) placeRing(r); }
+
+// ---------- Thermals / updrafts ----------
+const thermalGeo = new THREE.CylinderGeometry(11, 8, 70, 16, 1, true);
+const thermalMat = new THREE.MeshBasicMaterial({ color: 0xbdf0ff, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide });
+const THERMAL_COUNT = 4, THERMAL_R = 12;
+const thermals = [];
+for (let i = 0; i < THERMAL_COUNT; i++) {
+  const m = new THREE.Mesh(thermalGeo, thermalMat); m.visible = false; scene.add(m);
+  thermals.push({ m, x: 0, z: 0, top: 0 });
+}
+let thermalFarZ = 0;
+function placeThermal(t) {
+  thermalFarZ += rand(300, 560);
+  t.z = thermalFarZ; t.x = laneX(t.z) + rand(-34, 34);
+  const gh = terrainH(t.x, t.z); t.top = gh + 80;
+  t.m.visible = true; t.m.position.set(t.x, gh + 35, t.z);
+}
+function resetThermals() { thermalFarZ = 220; for (const t of thermals) placeThermal(t); }
+
+// ---------- Obstacles (blimps, cranes, bird flocks) — crashing hazards ----------
+const OBS_TYPES = ["blimp", "crane", "bird"];
+const obstacles = [];
+const OBS_COUNT = 9;
+function buildObstacle(type) {
+  const g = new THREE.Group();
+  if (type === "blimp") {
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0xe8584f, roughness: 0.6 }));
+    body.scale.set(9, 4.5, 5); g.add(body);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3, 3.4),
+      new THREE.MeshStandardMaterial({ color: 0xb8403a })); fin.position.set(-8.5, 0, 0); g.add(fin);
+    const car = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 1.6),
+      new THREE.MeshStandardMaterial({ color: 0x444a55 })); car.position.y = -4.6; g.add(car);
+  } else if (type === "crane") {
+    const yel = new THREE.MeshStandardMaterial({ color: 0xf2c14e, roughness: 0.6 });
+    const mast = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1, 2.4), yel); g.add(mast); g.userData.mast = mast;
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(46, 2, 2.4), yel); g.add(arm); g.userData.arm = arm;
+    const cw = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 3), new THREE.MeshStandardMaterial({ color: 0x555a63 }));
+    g.userData.cw = cw; g.add(cw);
+  } else { // bird flock — a few V shapes
+    const bm = new THREE.MeshStandardMaterial({ color: 0x2c2c38, roughness: 0.7 });
+    for (let i = 0; i < 4; i++) {
+      const b = new THREE.Mesh(new THREE.ConeGeometry(0.7, 2.4, 4), bm);
+      b.rotation.z = Math.PI / 2; b.position.set(rand(-4, 4), rand(-2, 2), rand(-3, 3)); g.add(b);
+    }
+  }
+  g.visible = false; scene.add(g);
+  return g;
+}
+for (let i = 0; i < OBS_COUNT; i++) {
+  const type = OBS_TYPES[i % OBS_TYPES.length];
+  obstacles.push({ grp: buildObstacle(type), type, x: 0, y: 0, z: 0, drift: 0, t: 0, active: false });
+}
+let obsFarZ = 0;
+const OBS_START_Z = 520; // hazards begin once you're flying well
+function placeObstacle(o) {
+  obsFarZ += rand(150, 320);
+  o.z = obsFarZ;
+  o.t = rand(0, TAU);
+  const gh = terrainH(laneX(o.z), o.z);
+  if (o.type === "crane") {
+    o.x = laneX(o.z) + (Math.random() < 0.5 ? -1 : 1) * rand(20, 55);
+    o.mastH = rand(55, 110); o.armY = gh + o.mastH; o.armRot = rand(0, TAU);
+    o.grp.userData.mast.scale.set(1, o.mastH, 1);
+    o.grp.userData.mast.position.y = o.mastH / 2;
+    o.grp.userData.arm.position.y = o.mastH; o.grp.userData.arm.rotation.y = o.armRot;
+    o.grp.userData.cw.position.set(0, o.mastH, 0);
+    o.y = gh; o.grp.position.set(o.x, gh, o.z);
+  } else if (o.type === "blimp") {
+    o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(35, 70); o.drift = rand(-6, 6);
+    o.grp.position.set(o.x, o.y, o.z);
+  } else { // bird
+    o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
+    o.grp.position.set(o.x, o.y, o.z);
+  }
+  o.active = true; o.grp.visible = true;
+}
+function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) placeObstacle(o); }
+
+// ---------- Biomes (city -> coast -> mountains -> space) ----------
+const CITY_END = 950;
+const BIOMES = [
+  { name: "City",      z: 0,    sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, fogNear: 350, fogFar: 1100 },
+  { name: "Coast",     z: 900,  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe6d39a, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.45, fogNear: 380, fogFar: 1200 },
+  { name: "Mountains", z: 1800, sky: 0x8fb6dd, fog: 0xa7bcd4, ground: 0x86997a, hs: 0xd2e3f2, hg: 0x586a48, amp: 2.6, fogNear: 280, fogFar: 1000 },
+  { name: "Space",     z: 3000, sky: 0x09081e, fog: 0x09081e, ground: 0x393a57, hs: 0x3a4570, hg: 0x14142a, amp: 1.3, fogNear: 240, fogFar: 1300 },
+];
+function biomeAmp(z) {
+  // smooth amplitude blend so mountains rise and coast flattens
+  let b = BIOMES[0];
+  for (const bi of BIOMES) if (z >= bi.z) b = bi;
+  return b.amp;
+}
+const _c1 = new THREE.Color(), _c2 = new THREE.Color();
+function curBiome() {
+  let i = 0;
+  for (let k = 0; k < BIOMES.length; k++) if (curZ() >= BIOMES[k].z) i = k;
+  return i;
+}
+let _curZ = 0; function curZ() { return _curZ; }
+function lerpHex(target, fromHex, toHex, t) {
+  _c1.setHex(fromHex); _c2.setHex(toHex);
+  if (target.copy) target.copy(_c1);
+  if (target.lerp) target.lerp(_c2, t);
+}
+function updateBiome(dt) {
+  _curZ = pos.z;
+  let i = 0; for (let k = 0; k < BIOMES.length; k++) if (pos.z >= BIOMES[k].z) i = k;
+  const a = BIOMES[i], b = BIOMES[Math.min(i + 1, BIOMES.length - 1)];
+  const span = Math.max(1, b.z - a.z);
+  const t = clamp((pos.z - a.z) / span, 0, 1);
+  if (scene.background && scene.background.setHex) lerpHex(scene.background, a.sky, b.sky, t);
+  if (scene.fog) {
+    if (scene.fog.color && scene.fog.color.setHex) lerpHex(scene.fog.color, a.fog, b.fog, t);
+    scene.fog.near = lerp(a.fogNear, b.fogNear, t);
+    scene.fog.far = lerp(a.fogFar, b.fogFar, t);
+  }
+  if (terrainMat.color && terrainMat.color.setHex) lerpHex(terrainMat.color, a.ground, b.ground, t);
+  if (hemi.color && hemi.color.setHex) lerpHex(hemi.color, a.hs, b.hs, t);
+  if (hemi.groundColor && hemi.groundColor.setHex) lerpHex(hemi.groundColor, a.hg, b.hg, t);
+}
+
+// ---------- Missions ----------
+function makeMission() {
+  const t = choice(["dist", "coins", "rings"]);
+  if (t === "dist")  return { type: "dist",  target: choice([500, 1000, 1800, 2800]), reward: 120 };
+  if (t === "coins") return { type: "coins", target: choice([20, 35, 55]),           reward: 100 };
+  return                    { type: "rings", target: choice([3, 5, 8]),              reward: 150 };
+}
+function missionText(m) {
+  if (m.type === "dist")  return `Fly ${m.target} m in one run`;
+  if (m.type === "coins") return `Collect ${m.target} coins in a run`;
+  return `Pass ${m.target} rings in a run`;
+}
+function evalMissions(stats) {
+  let total = 0;
+  for (let i = 0; i < save.missions.length; i++) {
+    const m = save.missions[i];
+    if ((stats[m.type] || 0) >= m.target) { total += m.reward; save.coins += m.reward; save.missions[i] = makeMission(); }
+  }
+  return total;
 }
 
 // ---------- Plane ----------
@@ -364,6 +644,29 @@ function buildPlane(tier) {
   return g;
 }
 
+// ---------- Plane trail ----------
+const trailTex = makeGlowTexture("rgba(255,255,255,1)");
+const TRAIL_COUNT = 26;
+const trail = [];
+for (let i = 0; i < TRAIL_COUNT; i++) {
+  const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: trailTex, transparent: true, opacity: 0, depthWrite: false }));
+  m.visible = false; scene.add(m); trail.push({ m, life: 0, max: 1 });
+}
+let trailCursor = 0, trailT = 0;
+function emitTrail(x, y, z, big) {
+  const p = trail[trailCursor]; trailCursor = (trailCursor + 1) % TRAIL_COUNT;
+  p.life = p.max = big ? 0.6 : 0.4; p.m.visible = true;
+  const s = big ? rand(3.5, 5) : rand(1.6, 2.6); p.m.scale.set(s, s, 1);
+  p.m.position.set(x, y, z);
+  if (p.m.material.color && p.m.material.color.setHex) p.m.material.color.setHex(big ? 0xffc46b : 0xffffff);
+}
+function updateTrail(dt) {
+  for (const p of trail) {
+    if (p.life <= 0) { if (p.m.visible) p.m.visible = false; continue; }
+    p.life -= dt; p.m.material.opacity = clamp(p.life / p.max, 0, 1) * 0.6;
+  }
+}
+
 // ---------- Game state ----------
 let state = "title"; // title | hangar | aim | flight | result
 const pos = new THREE.Vector3();
@@ -371,6 +674,7 @@ const vel = new THREE.Vector3();
 let yaw = 0, pitch = 0, roll = 0;
 let boostFuel = 0, boostMax = 0, boosting = false;
 let runCoins = 0, lowSpeedT = 0, pendingEvoName = null, titleT = 0, shakeT = 0;
+let comboMult = 1, ringsPassed = 0, runCoinPickups = 0, crashT = 0, prevZ = 0;
 const PLANE_GROUND = 1.6;
 
 function setupRun() {
@@ -381,9 +685,15 @@ function setupRun() {
   boostMax = 1.1 + lvl("fuel") * 0.5;
   boostFuel = boostMax;
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
+  comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z;
   resetCoins();
   resetCity();
   resetFuels();
+  resetRings();
+  resetThermals();
+  resetObstacles();
+  for (const p of parts) { p.active = false; p.m.visible = false; }
+  for (const p of trail) { p.life = 0; p.m.visible = false; }
   updateTerrain(pos.x, pos.z);
   plane.position.copy(pos);
   plane.rotation.set(0, 0, 0);
@@ -481,17 +791,30 @@ function updateFlight(dt) {
   plane.position.copy(pos);
   plane.rotation.set(-pitch, yaw, roll);
 
-  // coins
+  // coin value scales with the Coin Multiplier upgrade and the current ring combo
+  const coinValue = Math.round((1 + lvl("mult") * 0.5) * comboMult);
+  const magnetR = 9 + lvl("magnet") * 11;
   for (const c of coins) {
     if (!c.got) {
       const dx = c.x - pos.x, dy = c.y - pos.y, dz = c.z - pos.z;
-      if (dx * dx + dy * dy + dz * dz < 36) { c.got = true; c.mesh.visible = false; runCoins++; }
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (lvl("magnet") > 0 && d2 < magnetR * magnetR) {  // magnet pull
+        const d = Math.sqrt(d2) || 1, pull = 60 * dt * (1 - d / magnetR);
+        c.x += (dx / d) * pull * d; c.y += (dy / d) * pull * d; c.z += (dz / d) * pull * d;
+        c.mesh.position.set(c.x, c.y, c.z);
+      }
+      if (d2 < 36) {
+        c.got = true; c.mesh.visible = false;
+        runCoins += coinValue; runCoinPickups++;
+        spawnBurst(c.x, c.y, c.z, 0xffd454, 5, 12, rand(0.3, 0.7));
+        Sound.coin();
+      }
       c.mesh.rotation.z += dt * 3;
     }
     if (c.got || pos.z - c.z > 50) placeCoin(c);
   }
 
-  // boost-fuel pickups: refill the tank
+  // boost-fuel pickups
   for (const f of fuels) {
     if (!f.got) {
       f.grp.rotation.y += dt * 2.2;
@@ -499,40 +822,113 @@ function updateFlight(dt) {
       if (dx * dx + dy * dy + dz * dz < 49) {
         f.got = true; f.grp.visible = false;
         boostFuel = Math.min(boostMax, boostFuel + boostMax * FUEL_REFILL);
-        shakeT = Math.max(shakeT, 0.1);
+        spawnBurst(f.x, f.y, f.z, 0xff8a2a, 8, 16); Sound.fuel(); haptic(15); shakeT = Math.max(shakeT, 0.1);
       }
     }
     if (f.got || pos.z - f.z > 60) placeFuel(f);
   }
 
-  // buildings: collision (weave between them) + recycle ahead
-  const PH = 3.0; // plane collision half-size (forgiving so you can squeeze through)
+  // rings / boost gates — fly through to build a combo and gain a speed kick
+  for (const r of rings) {
+    r.m.rotation.z += dt * 1.2;
+    if (!r.passed && prevZ < r.z && pos.z >= r.z) {
+      const dx = pos.x - r.x, dy = pos.y - r.y;
+      if (dx * dx + dy * dy < RING_R * RING_R) {        // threaded it!
+        r.passed = true;
+        comboMult = Math.min(comboMult + 0.5, 6); ringsPassed++;
+        vel.addScaledVector(f, 26);                     // boost gate
+        boostFuel = Math.min(boostMax, boostFuel + 0.25);
+        runCoins += Math.round(5 * comboMult);
+        spawnBurst(r.x, r.y, r.z, 0x49e0ff, 16, 20); Sound.ring(); haptic(20);
+      }
+    }
+    if (pos.z - r.z > 40) placeRing(r);
+  }
+
+  // thermals / updrafts — ride them for free altitude
+  for (const t of thermals) {
+    const dx = pos.x - t.x, dz = pos.z - t.z;
+    if (dx * dx + dz * dz < THERMAL_R * THERMAL_R && pos.y < t.top) {
+      vel.y += 26 * dt;
+      if (Math.random() < 0.3) spawnBurst(pos.x + rand(-4, 4), pos.y - 3, pos.z, 0xbdf0ff, 1, 6, 0.5);
+    }
+    t.m.rotation.y += dt * 0.6;
+    if (pos.z - t.z > 80) placeThermal(t);
+  }
+
+  // buildings: hitting one is a CRASH (ends the run) — weave through the gaps
+  const PH = 2.6;
   for (const b of buildings) {
     if (b.active &&
         Math.abs(pos.x - b.x) < b.w / 2 + PH &&
         Math.abs(pos.z - b.z) < b.d / 2 + PH &&
-        pos.y < b.topY + PH) {
-      handleBuildingHit(b);
-    }
+        pos.y < b.topY + PH) { crash(); break; }
     if (pos.z - b.z > 60) placeBuilding(b);
   }
 
+  // obstacles (blimps drift, birds swarm, cranes loom) — also crash you
+  for (const o of obstacles) {
+    if (!o.active) { if (pos.z - o.z > 80) placeObstacle(o); continue; }
+    o.t += dt;
+    if (o.type === "blimp") {
+      o.x += o.drift * dt; o.grp.position.x = o.x; o.grp.position.y = o.y + Math.sin(o.t) * 1.2;
+      const dx = (pos.x - o.x) / 9, dy = (pos.y - o.grp.position.y) / 4.5, dz = (pos.z - o.z) / 5;
+      if (dx * dx + dy * dy + dz * dz < 1) { crash(); }
+    } else if (o.type === "bird") {
+      o.x += o.drift * dt; o.z -= 18 * dt; // fly toward the player
+      o.grp.position.set(o.x, o.y + Math.sin(o.t * 4) * 1.5, o.z);
+      const dx = pos.x - o.x, dy = pos.y - o.grp.position.y, dz = pos.z - o.z;
+      if (dx * dx + dy * dy + dz * dz < 16) { crash(); }
+    } else { // crane — vertical mast + horizontal jib
+      const ca = Math.cos(o.armRot), sa = Math.sin(o.armRot);
+      // mast collision
+      if (Math.abs(pos.x - o.x) < 3 && Math.abs(pos.z - o.z) < 3 && pos.y < o.armY + PH) crash();
+      // jib collision (a long arm along armRot at height armY)
+      const rx = pos.x - o.x, rz = pos.z - o.z;
+      const along = rx * ca + rz * sa, perp = -rx * sa + rz * ca;
+      if (Math.abs(along) < 24 && Math.abs(perp) < 2.5 && Math.abs(pos.y - o.armY) < 3) crash();
+    }
+    if (pos.z - o.z > 80) placeObstacle(o);
+  }
+
+  // plane trail (brighter while boosting)
+  trailT -= dt;
+  if (trailT <= 0) { emitTrail(pos.x, pos.y, pos.z, boosting); trailT = boosting ? 0.03 : 0.06; }
+
+  prevZ = pos.z;
+  updateParts(dt);
+  updateTrail(dt);
   updateShadow();
+  updateBiome(dt);
   updateTerrain(pos.x, pos.z);
   updateChaseCamera(dt, f);
   updateHUD();
 
-  if (onGround && lowSpeedT > 0.7) endRun();
+  if (crashT <= 0 && onGround && lowSpeedT > 0.7) endRun();
 }
 
-function handleBuildingHit(b) {
-  // hard knock: kill most momentum, bounce up and back, shove sideways out of the wall
-  vel.multiplyScalar(0.22);
-  vel.z = -Math.abs(vel.z) - 6;
-  vel.y = Math.max(vel.y, 0) + 9;
-  vel.x += (pos.x < b.x ? -1 : 1) * 14;
-  pos.z = b.z - (b.d / 2 + 3.2); // pop just in front of the face we hit
-  shakeT = 0.35;
+// ---------- Crash ----------
+function crash() {
+  if (crashT > 0) return;
+  crashT = 1.1; shakeT = 0.7;
+  spawnBurst(pos.x, pos.y, pos.z, 0xffa12a, 24, 28, rand(0.7, 1.5));
+  spawnBurst(pos.x, pos.y, pos.z, 0x6a6a6a, 16, 18);
+  vel.multiplyScalar(0.3); vel.y += 6;
+  Sound.crash(); haptic([40, 30, 70]);
+}
+function updateCrash(dt) {
+  crashT -= dt;
+  const s = dt * 0.4; // slow-mo
+  vel.y -= G * s;
+  pos.addScaledVector(vel, s);
+  const gh = terrainH(pos.x, pos.z) + PLANE_GROUND;
+  if (pos.y < gh) pos.y = gh;
+  plane.position.copy(pos);
+  plane.rotation.x += s * 6; plane.rotation.z += s * 9; // tumble
+  const fdir = forwardVec(fTmp);
+  updateParts(dt); updateTrail(dt); updateShadow();
+  updateChaseCamera(dt, fdir);
+  if (crashT <= 0) endRun();
 }
 
 const camGoal = new THREE.Vector3(), camLook = new THREE.Vector3(), fh = new THREE.Vector3();
@@ -579,7 +975,11 @@ function endRun() {
   const meters = Math.max(0, Math.floor(pos.z));
   const earned = runCoins + Math.floor(meters / 4);
   save.coins += earned;
+  const prevTier = save.tier;
   if (meters > save.best) save.best = meters;
+  save.tier = computeTier();                 // evolution earned by distance milestones
+  if (save.tier > prevTier) { pendingEvoName = TIERS[save.tier].name; Sound.evolve(); }
+  const missionReward = evalMissions({ dist: meters, coins: runCoinPickups, rings: ringsPassed });
   persist();
   document.getElementById("runDist").textContent = meters;
   document.getElementById("runCoins").textContent = earned;
@@ -587,6 +987,8 @@ function endRun() {
   const notice = document.getElementById("evoNotice");
   if (pendingEvoName) { notice.classList.remove("hidden"); document.getElementById("evoNoticeName").textContent = pendingEvoName; }
   else notice.classList.add("hidden");
+  const mEl = document.getElementById("missionResult");
+  if (mEl) { if (missionReward > 0) { mEl.classList.remove("hidden"); mEl.textContent = "🎯 Mission complete +" + missionReward + " coins!"; } else mEl.classList.add("hidden"); }
   hud.classList.add("hidden");
   hideFlightControls();
   showOverlay("resultScreen");
@@ -602,7 +1004,7 @@ const fuelLabel = document.getElementById("fuelLabel");
 const aimHintEl = document.getElementById("aimHint");
 function updateHUD() {
   distBig.innerHTML = Math.max(0, Math.floor(pos.z)) + "<small>METERS</small>";
-  coinHud.textContent = "◉ " + runCoins;
+  coinHud.innerHTML = "◉ " + runCoins + (comboMult > 1 ? ` <span style="color:#49e0ff">×${comboMult.toFixed(1)}</span>` : "");
   const frac = clamp(boostFuel / boostMax, 0, 1);
   fuelFill.style.width = (frac * 100) + "%";
   fuelLabel.textContent = boostFuel > 0 ? "BOOST FUEL 🔥" : "BOOST EMPTY — GLIDE!";
@@ -612,6 +1014,7 @@ function updateHUD() {
 const touch = { down: false, x: 0, y: 0, startX: 0, startY: 0 };
 function pt(e) { const t = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e); return { x: t.clientX, y: t.clientY }; }
 function onDown(e) {
+  Sound.resume();
   const p = pt(e);
   touch.down = true; touch.x = p.x; touch.y = p.y; touch.startX = p.x; touch.startY = p.y;
 }
@@ -720,7 +1123,7 @@ function loop(ts) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.04, (ts - last) / 1000 || 0);
   last = ts;
-  if (state === "flight") updateFlight(dt);
+  if (state === "flight") { if (crashT > 0) updateCrash(dt); else updateFlight(dt); }
   else if (state === "aim") updateAim(dt);
   else updateTitle(dt);
   // drifting clouds
@@ -763,15 +1166,21 @@ function renderShop() {
   document.getElementById("bestHangar").textContent = save.best;
 }
 function buyUpgrade(u) {
+  Sound.resume();
   const cost = upgradeCost(u);
   if (lvl(u.key) >= u.max || save.coins < cost) return;
   save.coins -= cost; save.up[u.key]++;
-  const before = save.tier; save.tier = computeTier();
-  if (save.tier > before) { pendingEvoName = TIERS[save.tier].name; buildPlane(save.tier); }
   persist(); renderShop();
 }
 
-function goHangar() { renderShop(); showOverlay("hangar"); state = "hangar"; }
+function renderMissions() {
+  const el = document.getElementById("missions");
+  if (!el) return;
+  el.innerHTML = `<div class="mTitle">🎯 MISSIONS</div>` + save.missions.map(m =>
+    `<div class="mRow"><span>${missionText(m)}</span><span class="mRew"><span class="coin"></span>${m.reward}</span></div>`
+  ).join("");
+}
+function goHangar() { renderShop(); renderMissions(); showOverlay("hangar"); state = "hangar"; }
 function goAim() {
   setupRun();
   state = "aim";
@@ -796,6 +1205,20 @@ document.getElementById("resetBtn").addEventListener("click", () => {
   document.getElementById("bestTitle").textContent = save.best;
 });
 
+function checkDaily() {
+  let today = "";
+  try { today = new Date().toISOString().slice(0, 10); } catch (e) { return; }
+  if (save.lastDaily !== today) {
+    save.lastDaily = today; save.coins += 100; persist();
+    const toast = document.getElementById("dailyToast");
+    if (toast) {
+      toast.textContent = "🎁 Daily bonus: +100 coins!";
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 3200);
+    }
+  }
+}
+
 // ---------- Boot ----------
 loadSave();
 buildPlane(save.tier);
@@ -805,7 +1228,12 @@ updateTerrain(0, 6);
 resetCoins();
 resetCity();
 resetFuels();
+resetRings();
+resetThermals();
+resetObstacles();
 updateShadow();
+updateBiome(0);
+checkDaily();
 document.getElementById("bestTitle").textContent = save.best;
 loadingEl.classList.add("hidden");
 showOverlay("title");
