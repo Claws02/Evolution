@@ -4,28 +4,26 @@ A **3D** browser slingshot launch-and-fly distance game, built to play on an iPh
 
 ## How to play
 
-1. **Launch** — on the runway, **drag back and release** (like a slingshot). A power meter fills as you pull; a harder pull launches faster and steeper.
-2. **Fly** — once airborne, a **fixed joystick** sits in a thumb-friendly spot on the lower right; press **anywhere on the right half** of the screen and the plane flies in that direction relative to the joystick's center (push **down to climb, up to dive** flight-sim style, left/right to bank). Touch **anywhere on the left half** to **boost** (once you've bought a Boost upgrade) — it burns fuel for thrust. A **shadow + altitude line** on the ground show exactly how high you are. Real arcade flight physics: thrust, gravity, drag, lift, and terrain bounces. **A stock plane barely flies — upgrades are what unlock real distance.**
-3. **Weave through the city** — a winding, Boston-style skyline rises ahead. Thread the gaps between buildings; clipping one knocks you back hard and bleeds your speed.
-4. **Collect coins** floating through the 3D sky — they trace the safe lane between the buildings. Grab **flame fuel pickups** to refill your boost tank, fly through **glowing rings** to build a coin-multiplier combo and get a speed kick, and ride **thermal updrafts** for free altitude.
-5. **Don't crash!** Clipping a building, blimp, crane, or bird flock ends the run instantly (with a debris burst and a beat of slow-mo).
-6. **Travel through biomes** as you fly farther: City → Coast → Mountains → Space, each with its own sky, ground, and skyline.
+1. **Launch** — on the runway, **drag back and release** (like a slingshot). A power meter fills as you pull, with a dotted **trajectory arc** preview. Release in the sweet-spot band for a **PERFECT LAUNCH** (extra speed + fuel).
+2. **Fly to the finish** — every level has an **end**: reach the 🏁 finish gate to clear it and advance to the next level. A **fixed joystick** sits in a thumb-friendly spot on the lower right; press **anywhere on the right half** to fly in that direction relative to its center (push **down to climb, up to dive**, left/right to bank). Touch **anywhere on the left half** to **boost** (once you own a Boost upgrade). Tap **⏸** any time to pause and reach Settings.
+3. **Work for your speed** — this is a demanding flyer. A stock plane sinks fast and stalls; you have to **dive to build speed**, spend boost, catch rings, and ride thermals to keep moving. Upgrades are what let you sustain a cruise.
+4. **Mind the limits** — the land is a **corridor flanked by open sea on both sides**: stray over the water and you ditch. Climb too high and you **lose cabin pressure** — the thin air bleeds your speed and pulls you down, so you can't just float above everything.
+5. **Don't crash** — clipping a building or a zone hazard (blimps, cranes, bird flocks) ends the run with a debris burst and a beat of slow-mo.
+6. **Collect & combo** — grab coins, refill at **fuel pickups**, chain **rings** for a coin-multiplier combo + speed kick, and ride **thermal updrafts** for altitude.
 
-6. **Travel through a random cycle of bright zones** — Metropolis, Coastline, Highlands, Sunset Mesa, Meadows, Glacier, Sky City — reshuffled every run, each with its own sky, ground, and terrain.
-7. **Chase the goal** — a 🏁 finish gate sits ahead; fly through it to bank a bonus and set a new, farther goal.
-
-> Flight tip: point the nose **down to pick up speed**, and **up to trade speed for height** — manage your energy to glide farther.
-
-### Settings, offline & performance
-- **Settings** (⚙ on the title screen): joystick sensitivity, invert pitch, sound on/off, haptics on/off, and graphics quality (Auto/High/Low).
-- **Installable PWA with offline play** — a service worker caches the whole app (including Three.js), so after the first load it runs with no network. Add to Home Screen for a fullscreen, app-like experience.
-- **Adaptive performance guard** — in Auto quality the game watches the frame rate and dials back pixel ratio / draw distance on slower devices.
+### Levels & zones
+- Levels are discrete and get **longer as you progress** (early ones are short to get you going; a fully-upgraded plane needs ~90 seconds to fly a full-length level straight).
+- Each level is a themed zone with its own sky, ground, terrain shape, and **hazard mix**: Metropolis, Coastline, Highlands, Sunset Mesa, Meadows, Glacier, Sky City.
 
 ### Progression
-- **Coins** buy upgrades: Launch Power, Boost Thrust, Fuel Tank, Aerodynamics, Wings & Lift, **Coin Magnet**, and **Coin Multiplier**.
-- **Evolution** is earned by flying far — each best-distance milestone evolves your plane to a stronger, cooler tier (7 total).
-- **Missions** (fly X meters, collect X coins, pass X rings) and a **daily login bonus** keep the coins flowing.
-- Sound effects play throughout; phones that support web vibration get haptic feedback on rings, pickups, and crashes.
+- **Coins** buy upgrades: Launch Power, Boost Thrust, Fuel Tank, Aerodynamics, Wings & Lift, **Coin Magnet**, and **Coin Multiplier**. Coins are scarce on purpose — upgrades are an investment.
+- **Evolution** is earned by **completing levels** — each level cleared evolves your plane to a stronger, cooler tier.
+- **Missions** (fly X metres, collect X coins, pass X rings) and a **daily login bonus** top up your coins.
+
+### Settings, offline & performance
+- **Settings** (⚙ on the title screen, or ⏸ pause in flight): joystick sensitivity, invert pitch, sound on/off, haptics on/off, and graphics quality (Auto/High/Low).
+- **Installable PWA with offline play** — a service worker caches the whole app (including the vendored Three.js), so after the first load it runs with no network. Add to Home Screen for a fullscreen, app-like experience.
+- **Adaptive performance guard** — in Auto quality the game watches the frame rate and dials back pixel ratio / draw distance on slower devices.
 5. **Land** — when your plane comes to rest, you bank your **distance** and **coins earned** (collected coins + a distance bonus).
 6. **Upgrade & evolve** — spend coins in the hangar on Launch Power, Boost Thrust, Fuel Tank, Aerodynamics, and Wings & Lift. Every few upgrades your plane **evolves** into a new, better-looking tier (7 tiers total).
 

@@ -97,7 +97,10 @@ function mockEl(id) {
     _fire(t, ev) { (listeners[t] || []).forEach(fn => fn(ev || { preventDefault() {} })); },
     querySelector() { return mockEl(id + "::child"); },
     appendChild(c) { this.children.push(c); }, getContext() { return mockCtx(); },
-    getBoundingClientRect() { return { left: 0, top: 0, width: 120, height: 120, right: 120, bottom: 120 }; },
+    getBoundingClientRect() {
+      if (id === "joy") return { left: 240, top: 640, width: 138, height: 138, right: 378, bottom: 778 };
+      return { left: 0, top: 0, width: 120, height: 120, right: 120, bottom: 120 };
+    },
     width: 0, height: 0,
   };
   return el;
@@ -182,20 +185,27 @@ function canvasTouch(type, list) {
 }
 // boost finger (id 1) on the left; joystick finger (id 2) on the right, pushed down to climb
 const W = window.innerWidth;
-canvasTouch("touchstart", [{ identifier: 1, clientX: 60, clientY: 600 }, { identifier: 2, clientX: 320, clientY: 420 }]);
-assert(document.getElementById("joy").classList.contains("show"), "joystick appears under finger (right side)");
+// joy center is ~ (309, 709); press just below it to climb gently, horizontally centered
+canvasTouch("touchstart", [{ identifier: 1, clientX: 60, clientY: 600 }, { identifier: 2, clientX: 309, clientY: 770 }]);
+assert(document.getElementById("joy").classList.contains("show"), "joystick visible during flight (right side)");
 assert(document.getElementById("boostBtn").classList.contains("show"), "boost appears under finger (left side, boost owned)");
+
+// pause / resume during flight
+fire("pauseBtn", "click");
+assert(!document.getElementById("pauseScreen").classList.contains("hidden"), "pause overlay opens in flight");
+fire("resumeBtn", "click");
+assert(document.getElementById("pauseScreen").classList.contains("hidden"), "resume closes the pause overlay");
 
 // 5) Flight: hold boost + push the joystick down (climb), then release and glide to landing
 let landed = false, maxZ = 0, maxFrames = 12000;
 try {
   for (let i = 0; i < 1200 && !landed; i++) {
-    canvasTouch("touchmove", [{ identifier: 2, clientX: 320, clientY: 520 }]); // below spawn -> climb
+    canvasTouch("touchmove", [{ identifier: 2, clientX: 309, clientY: 770 }]); // below center -> climb
     frame(16);
     maxZ = Math.max(maxZ, readDistance());
     if (resultShown()) { landed = true; break; }
   }
-  canvasTouch("touchend", [{ identifier: 1, clientX: 60, clientY: 600 }, { identifier: 2, clientX: 320, clientY: 520 }]);
+  canvasTouch("touchend", [{ identifier: 1, clientX: 60, clientY: 600 }, { identifier: 2, clientX: 309, clientY: 770 }]);
   // glide until it lands
   for (let i = 0; i < maxFrames && !landed; i++) {
     frame(16);

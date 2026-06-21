@@ -66,40 +66,39 @@ const Sound = (() => {
 })();
 function haptic(p) { try { if (save && save.settings && !save.settings.haptics) return; if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
 
-// ---------- Terrain height field (world-anchored, infinite illusion) ----------
-// Amplitude shifts with the current level zone (coast flattens, highlands rise), blended at edges.
-function terrainAmp(z) {
-  if (typeof levelOrder === "undefined") return 1.0;
-  const len = 600; // must match LEVEL_LEN
-  const i = Math.floor(Math.max(0, z) / len);
-  const a = LEVELS[levelOrder[i % levelOrder.length]];
-  const b = LEVELS[levelOrder[(i + 1) % levelOrder.length]];
-  const frac = clamp((z - i * len) / len, 0, 1);
-  const t = clamp((frac - 0.78) / 0.22, 0, 1);
-  return lerp(a.amp, b.amp, t);
-}
+// ---------- Terrain height field (a land corridor flanked by sea on both sides) ----------
+const CORRIDOR = 120;      // playable land half-width; |x| beyond this is open sea = no-go
+const SEA_Y = -6;          // sea surface height
+function terrainAmp() { return curZone ? curZone.amp : 1.0; }  // set per level
 function terrainH(x, z) {
   let h = Math.sin(x * 0.012) * 4
         + Math.sin(z * 0.010) * 6
         + Math.sin((x + z) * 0.006) * 9
         + Math.sin(z * 0.028 + x * 0.01) * 2;
-  h *= terrainAmp(z);
+  h *= terrainAmp();
   // flatten the runway area around the start
   const flat = clamp(z / 130, 0, 1);
-  return h * flat;
+  h *= flat;
+  // shoreline: land slopes down into the sea past the corridor edges
+  const ax = Math.abs(x);
+  if (ax > CORRIDOR - 25) {
+    const t = clamp((ax - (CORRIDOR - 25)) / 55, 0, 1);
+    h = lerp(h, SEA_Y - 4, t);
+  }
+  return h;
 }
-// Meandering "safe lane" through the city — coins and gaps follow it (Boston-style winding streets)
-function laneX(z) { return Math.sin(z * 0.008) * 42 + Math.sin(z * 0.021 + 1.3) * 16; }
+// Meandering "safe lane" the coins/gaps follow — kept well inside the corridor
+function laneX(z) { return Math.sin(z * 0.008) * 34 + Math.sin(z * 0.021 + 1.3) * 14; }
 
 // ---------- Upgrades & evolution ----------
 const UPGRADES = [
-  { key: "power",  ico: "🚀", name: "Launch Power",    max: 8, baseCost: 40, growth: 1.55 },
-  { key: "boost",  ico: "🔥", name: "Boost Thrust",    max: 8, baseCost: 50, growth: 1.55 },
-  { key: "fuel",   ico: "⛽", name: "Fuel Tank",       max: 8, baseCost: 45, growth: 1.55 },
-  { key: "aero",   ico: "🪶", name: "Aerodynamics",    max: 8, baseCost: 55, growth: 1.6  },
-  { key: "wings",  ico: "🛩", name: "Wings & Lift",     max: 8, baseCost: 60, growth: 1.6  },
-  { key: "magnet", ico: "🧲", name: "Coin Magnet",     max: 6, baseCost: 70, growth: 1.6  },
-  { key: "mult",   ico: "✨", name: "Coin Multiplier", max: 6, baseCost: 90, growth: 1.7  },
+  { key: "power",  ico: "🚀", name: "Launch Power",    max: 8, baseCost: 65,  growth: 1.62 },
+  { key: "boost",  ico: "🔥", name: "Boost Thrust",    max: 8, baseCost: 80,  growth: 1.62 },
+  { key: "fuel",   ico: "⛽", name: "Fuel Tank",       max: 8, baseCost: 70,  growth: 1.62 },
+  { key: "aero",   ico: "🪶", name: "Aerodynamics",    max: 8, baseCost: 90,  growth: 1.66 },
+  { key: "wings",  ico: "🛩", name: "Wings & Lift",     max: 8, baseCost: 95,  growth: 1.66 },
+  { key: "magnet", ico: "🧲", name: "Coin Magnet",     max: 6, baseCost: 110, growth: 1.66 },
+  { key: "mult",   ico: "✨", name: "Coin Multiplier", max: 6, baseCost: 140, growth: 1.72 },
 ];
 const TIERS = [
   { name: "Paper Glider", body: 0xeef4ff, accent: 0xb9d3ff, scale: 0.9 },
@@ -119,6 +118,7 @@ function loadSave() {
   if (!save || typeof save !== "object") save = {};
   save.coins = save.coins || 0;
   save.best = save.best || 0;
+  save.level = save.level || 0;
   save.up = save.up || {};
   for (const u of UPGRADES) save.up[u.key] = save.up[u.key] || 0;
   if (!Array.isArray(save.missions) || save.missions.length < 3) save.missions = [makeMission(), makeMission(), makeMission()];
@@ -129,13 +129,8 @@ function loadSave() {
 function persist() { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
 function lvl(k) { return save.up[k] || 0; }
 function upgradeCost(u) { return Math.round(u.baseCost * Math.pow(u.growth, lvl(u.key))); }
-// Evolution is earned by flying far: each best-distance milestone unlocks the next tier.
-const TIER_MILESTONES = [0, 400, 900, 1600, 2500, 3800, 5500];
-function computeTier() {
-  let t = 0;
-  for (let i = 0; i < TIER_MILESTONES.length && i < TIERS.length; i++) if (save.best >= TIER_MILESTONES[i]) t = i;
-  return t;
-}
+// Evolution is earned by progress: completing levels evolves your plane to the next tier.
+function computeTier() { return clamp(save.level || 0, 0, TIERS.length - 1); }
 
 // ---------- Three.js setup ----------
 const canvas = document.getElementById("scene");
@@ -231,30 +226,38 @@ function makeShadowTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-// ---------- Terrain mesh ----------
-const T_W = 760, T_D = 1500, T_WSEG = 46, T_DSEG = 90;
-const cellX = T_W / T_WSEG, cellZ = T_D / T_DSEG;
+// ---------- Terrain mesh (the land corridor — fixed at x=0, scrolls only in z) ----------
+const T_W = 380, T_D = 1500, T_WSEG = 30, T_DSEG = 90;
+const cellZ = T_D / T_DSEG;
 const terrainGeo = new THREE.PlaneGeometry(T_W, T_D, T_WSEG, T_DSEG);
 terrainGeo.rotateX(-Math.PI / 2); // lie flat in XZ; Y is height
 const terrainMat = new THREE.MeshLambertMaterial({ color: 0x67c267, flatShading: true });
 const terrain = new THREE.Mesh(terrainGeo, terrainMat);
 scene.add(terrain);
-let terrainSnapX = NaN, terrainSnapZ = NaN;
+let terrainSnapZ = NaN;
 const FORWARD_BIAS = 380;
 function updateTerrain(px, pz) {
-  const sx = Math.round(px / cellX) * cellX;
   const sz = Math.round((pz + FORWARD_BIAS) / cellZ) * cellZ;
-  if (sx === terrainSnapX && sz === terrainSnapZ) return;
-  terrainSnapX = sx; terrainSnapZ = sz;
-  terrain.position.set(sx, 0, sz);
+  if (sz === terrainSnapZ) return;
+  terrainSnapZ = sz;
+  terrain.position.set(0, 0, sz);   // corridor stays centered on x=0
   const pos = terrainGeo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const lx = pos.getX(i), lz = pos.getZ(i);
-    pos.setY(i, terrainH(sx + lx, sz + lz));
+    pos.setY(i, terrainH(lx, sz + lz));
   }
   pos.needsUpdate = true;
   terrainGeo.computeVertexNormals();
 }
+
+// ---------- Sea (flanks the corridor on both sides) ----------
+const seaGeo = new THREE.PlaneGeometry(4000, 4000, 1, 1);
+seaGeo.rotateX(-Math.PI / 2);
+const seaMat = new THREE.MeshLambertMaterial({ color: 0x2f7fd6 });
+const sea = new THREE.Mesh(seaGeo, seaMat);
+sea.position.y = SEA_Y;
+scene.add(sea);
+function updateSea(px, pz) { sea.position.set(0, SEA_Y, pz); } // follows forward; flat so no snapping needed
 
 // runway ramp at start
 {
@@ -353,7 +356,7 @@ function makeWindowTexture() {
   const t = new THREE.CanvasTexture(c);
   return t;
 }
-const CITY_HALF = 115;               // city spreads this far either side of center
+const CITY_HALF = 108;               // buildings stay inside the land corridor
 const CITY_START_Z = 170;            // open runway before the skyline begins
 const bodyGeo = new THREE.BoxGeometry(1, 1, 1);
 const roofGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -389,12 +392,13 @@ function buildRow(z) {
   return slots;
 }
 function nextPlacement() {
+  if (!curZone.build) return null;     // only city-type zones have buildings
   let guard = 0;
   while (rowSlots.length === 0) {
     genZ += rand(40, 78);
-    if (levelAt(genZ).build) rowSlots = buildRow(genZ);
-    else genZ = (levelIndexAt(genZ) + 1) * LEVEL_LEN + 4;  // skip over non-city zones
-    if (++guard > 80) return null;
+    if (genZ > curLevelLen - 60) return null;  // stop before the finish line
+    rowSlots = buildRow(genZ);
+    if (++guard > 60) return null;
   }
   const s = rowSlots.pop();
   return { x: s.x, z: genZ, w: s.w, d: s.d, h: s.h };
@@ -548,7 +552,10 @@ for (let i = 0; i < OBS_COUNT; i++) {
 let obsFarZ = 0;
 const OBS_START_Z = 520; // hazards begin once you're flying well
 function placeObstacle(o) {
-  obsFarZ += rand(150, 320);
+  // per-zone hazard mix: only the obstacle types this zone uses are active
+  if (!curZone.obs || curZone.obs.indexOf(o.type) < 0) { o.active = false; o.grp.visible = false; o.z = 1e7; return; }
+  const dense = 1 - Math.min(save.level, 6) * 0.06;   // hazards pack tighter in later levels
+  obsFarZ += rand(150, 320) * dense;
   o.z = obsFarZ;
   o.t = rand(0, TAU);
   const gh = terrainH(laneX(o.z), o.z);
@@ -571,75 +578,54 @@ function placeObstacle(o) {
 }
 function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) placeObstacle(o); }
 
-// ---------- Levels (a randomized cycle of bright themed zones) ----------
-const LEVEL_LEN = 600;
+// ---------- Levels (discrete zones; reach the FINISH to advance to the next level) ----------
+// Length ramps with level so early levels are beatable, while a maxed plane needs ~90s on the
+// longest ones (LEVEL_TIME * NOMINAL_CRUISE). Early levels are short to build momentum/retention.
+const LEVEL_TIME = 90;            // target seconds for a maxed plane to clear a full-length level
+const NOMINAL_CRUISE = 100;       // approx forward speed (units/s) a maxed plane sustains
+const LEVEL_LEN = LEVEL_TIME * NOMINAL_CRUISE; // = 9000, the cap a level length ramps toward
+function levelLength(n) { return Math.round(Math.min(LEVEL_LEN, 2500 + n * 1100)); }
+let curLevelLen = 2500;
 const LEVELS = [
-  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100 },
-  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250 },
-  { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050 },
-  { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150 },
-  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300 },
-  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200 },
-  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150 },
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "blimp"] },
+  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "blimp"] },
+  { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050, obs: ["crane", "bird"] },
+  { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150, obs: ["bird", "crane"] },
+  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300, obs: ["bird"] },
+  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird"] },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "crane"] },
 ];
-let levelOrder = [0];
-function regenLevels() {
-  // first zone is always the Metropolis (matches the runway start); the rest are a random cycle
-  const rest = [1, 2, 3, 4, 5, 6];
-  for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
-  levelOrder = [0, ...rest];
+function zoneForLevel(n) { return n <= 0 ? LEVELS[0] : LEVELS[1 + ((n - 1) % (LEVELS.length - 1))]; }
+let curZone = LEVELS[0];
+function setColorHex(target, hex) { if (target && target.setHex) target.setHex(hex); }
+function applyZone(z) {
+  curZone = z;
+  setColorHex(scene.background, z.sky);
+  if (scene.fog) { setColorHex(scene.fog.color, z.fog); scene.fog.near = z.fogNear * qFog; scene.fog.far = z.fogFar * qFog; }
+  setColorHex(terrainMat.color, z.ground);
+  setColorHex(hemi.color, z.hs);
+  setColorHex(hemi.groundColor, z.hg);
 }
-function levelIndexAt(z) { return Math.floor(Math.max(0, z) / LEVEL_LEN); }
-function levelAt(z) { return LEVELS[levelOrder[levelIndexAt(z) % levelOrder.length]]; }
-const _c1 = new THREE.Color(), _c2 = new THREE.Color();
-function lerpHex(target, fromHex, toHex, t) {
-  _c1.setHex(fromHex); _c2.setHex(toHex);
-  if (target.copy) target.copy(_c1);
-  if (target.lerp) target.lerp(_c2, t);
-}
-let shownLevelName = "";
-function updateLevel(dt) {
-  const i = levelIndexAt(pos.z);
-  const a = LEVELS[levelOrder[i % levelOrder.length]];
-  const b = LEVELS[levelOrder[(i + 1) % levelOrder.length]];
-  const frac = clamp((pos.z - i * LEVEL_LEN) / LEVEL_LEN, 0, 1);
-  const t = clamp((frac - 0.78) / 0.22, 0, 1); // blend over the last stretch of each zone
-  if (scene.background && scene.background.setHex) lerpHex(scene.background, a.sky, b.sky, t);
-  if (scene.fog) {
-    if (scene.fog.color && scene.fog.color.setHex) lerpHex(scene.fog.color, a.fog, b.fog, t);
-    scene.fog.near = lerp(a.fogNear, b.fogNear, t) * qFog;
-    scene.fog.far = lerp(a.fogFar, b.fogFar, t) * qFog;
-  }
-  if (terrainMat.color && terrainMat.color.setHex) lerpHex(terrainMat.color, a.ground, b.ground, t);
-  if (hemi.color && hemi.color.setHex) lerpHex(hemi.color, a.hs, b.hs, t);
-  if (hemi.groundColor && hemi.groundColor.setHex) lerpHex(hemi.groundColor, a.hg, b.hg, t);
-  // announce a new zone
-  if (a.name !== shownLevelName) {
-    shownLevelName = a.name;
-    const el = document.getElementById("levelName");
-    if (el) { el.textContent = "▸ " + a.name; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2200); }
-  }
+function announceLevel() {
+  const el = document.getElementById("levelName");
+  if (el) { el.textContent = "LEVEL " + (save.level + 1) + " · " + curZone.name; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600); }
 }
 
-// ---------- Goal gate (a finish line to fly through; reaching it sets a new, farther goal) ----------
-const GOAL_STEP = 800;
-let goalDist = GOAL_STEP, goalsReached = 0;
-const goalGate = (() => {
+// ---------- Finish gate (the single goal: the end of the level) ----------
+const finishGate = (() => {
   const g = new THREE.Group();
-  const pillarMat = new THREE.MeshStandardMaterial({ color: 0xffd454, emissive: 0x6a4e00, emissiveIntensity: 0.5, metalness: 0.5, roughness: 0.4 });
-  const bannerMat = new THREE.MeshStandardMaterial({ color: 0x49e0ff, emissive: 0x0c5066, emissiveIntensity: 0.6 });
-  const L = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 60, 10), pillarMat); L.position.set(-22, 30, 0); g.add(L);
-  const R = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 60, 10), pillarMat); R.position.set(22, 30, 0); g.add(R);
-  const top = new THREE.Mesh(new THREE.BoxGeometry(48, 6, 3), bannerMat); top.position.set(0, 58, 0); g.add(top);
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x7dffb0, emissive: 0x0c5a30, emissiveIntensity: 0.6, metalness: 0.4, roughness: 0.4 });
+  const bannerMat = new THREE.MeshStandardMaterial({ color: 0xffd454, emissive: 0x6a4e00, emissiveIntensity: 0.6 });
+  const L = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 90, 10), postMat); L.position.set(-34, 45, 0); g.add(L);
+  const R = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 90, 10), postMat); R.position.set(34, 45, 0); g.add(R);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(74, 9, 4), bannerMat); top.position.set(0, 86, 0); g.add(top);
   g.visible = false; scene.add(g);
   return g;
 })();
-function placeGoalGate() {
-  const gx = laneX(goalDist), gy = terrainH(gx, goalDist);
-  goalGate.position.set(gx, gy, goalDist);
-  goalGate.visible = true;
+function placeFinish() {
+  finishGate.position.set(0, terrainH(0, curLevelLen), curLevelLen);
+  finishGate.visible = true;
 }
-function resetGoal() { goalDist = GOAL_STEP; goalsReached = 0; placeGoalGate(); }
 
 // ---------- Missions ----------
 function makeMission() {
@@ -726,6 +712,14 @@ function updateTrail(dt) {
   }
 }
 
+// ---------- Launch trajectory arc (aim preview) ----------
+const arcGeo = new THREE.SphereGeometry(0.9, 8, 6);
+const arcMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false });
+const ARC_COUNT = 18;
+const arcDots = [];
+for (let i = 0; i < ARC_COUNT; i++) { const m = new THREE.Mesh(arcGeo, arcMat); m.visible = false; scene.add(m); arcDots.push(m); }
+function hideArc() { for (const m of arcDots) m.visible = false; }
+
 // ---------- Game state ----------
 let state = "title"; // title | hangar | aim | flight | result
 const pos = new THREE.Vector3();
@@ -733,10 +727,12 @@ const vel = new THREE.Vector3();
 let yaw = 0, pitch = 0, roll = 0;
 let boostFuel = 0, boostMax = 0, boosting = false;
 let runCoins = 0, lowSpeedT = 0, pendingEvoName = null, titleT = 0, shakeT = 0;
-let comboMult = 1, ringsPassed = 0, runCoinPickups = 0, crashT = 0, prevZ = 0;
+let comboMult = 1, ringsPassed = 0, runCoinPickups = 0, crashT = 0, prevZ = 0, levelCleared = false;
 const PLANE_GROUND = 1.6;
 
 function setupRun() {
+  applyZone(zoneForLevel(save.level));   // this level's theme (sets terrain amplitude + colors)
+  curLevelLen = levelLength(save.level);
   buildPlane(save.tier);
   yaw = 0; pitch = 0; roll = 0;
   pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
@@ -744,22 +740,24 @@ function setupRun() {
   boostMax = 1.1 + lvl("fuel") * 0.5;
   boostFuel = boostMax;
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
-  comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z;
-  regenLevels(); shownLevelName = "";
+  comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z; levelCleared = false;
+  terrainSnapZ = NaN;                    // force terrain rebuild for the new zone amplitude
   resetCoins();
   resetCity();
   resetFuels();
   resetRings();
   resetThermals();
   resetObstacles();
-  resetGoal();
+  placeFinish();
   for (const p of parts) { p.active = false; p.m.visible = false; }
   for (const p of trail) { p.life = 0; p.m.visible = false; }
+  hideArc();
   updateTerrain(pos.x, pos.z);
+  updateSea(pos.x, pos.z);
   plane.position.copy(pos);
   plane.rotation.set(0, 0, 0);
   updateShadow();
-  updateLevel(0);
+  announceLevel();
 }
 
 function forwardVec(out) {
@@ -768,13 +766,17 @@ function forwardVec(out) {
 }
 
 // ---------- Launch ----------
+const PERFECT_LO = 0.78, PERFECT_HI = 0.92;   // release in this power band for a perfect launch
 function launch(power, launchPitch) {
-  // Launch Power dominates initial speed; a fresh plane is slow and won't go far without upgrades.
-  const maxSpeed = 70 + lvl("power") * 22 + save.tier * 8;
-  const speed = lerp(40, maxSpeed, power);
+  // Launch Power dominates the initial speed; a fresh plane is slow off the ramp.
+  const maxSpeed = 56 + lvl("power") * 18 + save.tier * 6;
+  let speed = lerp(32, maxSpeed, power);
+  const perfect = power >= PERFECT_LO && power <= PERFECT_HI;
+  if (perfect) { speed *= 1.18; boostFuel = Math.min(boostMax, boostFuel + 0.4); goalBanner("✦ PERFECT LAUNCH"); Sound.ring(); haptic(25); }
   pitch = launchPitch; yaw = 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
+  hideArc();
   state = "flight";
   hud.classList.remove("hidden");
   aimHintEl.textContent = "";
@@ -783,7 +785,11 @@ function launch(power, launchPitch) {
 }
 
 // ---------- Physics ----------
-const G = 26, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
+// Deliberately demanding: a stock plane sinks fast and stalls quickly. Upgrades are what
+// let you sustain speed, and you must keep diving / boosting / catching rings to keep moving.
+const G = 31, fTmp = new THREE.Vector3(), dTmp = new THREE.Vector3();
+const CEILING = 118;          // cabin-pressure ceiling: above this the air thins out
+let cabinWarn = false;
 function updateFlight(dt) {
   // input → target attitude (virtual joystick)
   let targetPitch = pitch * 0.985; // relax toward level when not steering
@@ -803,10 +809,10 @@ function updateFlight(dt) {
   const f = forwardVec(fTmp);
   let speed = vel.length();
 
-  // thrust (only available once a Boost upgrade is owned)
+  // thrust (only once a Boost upgrade is owned)
   const flame = plane.userData.flame;
   if (boosting) {
-    const thrust = 62 + lvl("boost") * 15 + save.tier * 4;
+    const thrust = 48 + lvl("boost") * 12 + save.tier * 3;
     vel.addScaledVector(f, thrust * dt);
     boostFuel = Math.max(0, boostFuel - dt);
     if (flame) { flame.visible = true; flame.scale.setScalar(rand(0.8, 1.3)); }
@@ -816,12 +822,20 @@ function updateFlight(dt) {
   vel.y -= G * dt;
 
   // pitch trades altitude for speed: nose DOWN accelerates strongly, nose UP decelerates
-  vel.addScaledVector(f, -Math.sin(pitch) * G * 1.25 * dt);
+  vel.addScaledVector(f, -Math.sin(pitch) * G * 1.3 * dt);
 
   // lift: horizontal speed sustains altitude. Weak by default — Wings upgrades matter a lot.
   const speedH = Math.hypot(vel.x, vel.z);
-  const lift = clamp(speedH * (0.022 + lvl("wings") * 0.030), 0, G * 0.97);
+  const lift = clamp(speedH * (0.014 + lvl("wings") * 0.026), 0, G * 0.9);
   vel.y += lift * dt;
+
+  // cabin pressure: climb too high and the thin air bleeds your speed and drags you down
+  cabinWarn = pos.y > CEILING;
+  if (cabinWarn) {
+    const over = pos.y - CEILING;
+    vel.y -= (8 + over * 0.45) * dt;
+    vel.multiplyScalar(Math.max(0, 1 - clamp(over / 70, 0, 1) * 0.6 * dt));
+  }
 
   // aerodynamic alignment: send velocity where the nose points (so pitch actually steers the dive)
   speed = vel.length();
@@ -829,10 +843,18 @@ function updateFlight(dt) {
   vel.lerp(dTmp, Math.min(1, 2.6 * dt));
 
   // drag (much less with Aerodynamics upgrades)
-  const drag = 0.25 - lvl("aero") * 0.022;
+  const drag = 0.30 - lvl("aero") * 0.022;
   vel.multiplyScalar(Math.max(0, 1 - drag * dt));
 
+  // soft top speed: an achievable cruise that rises with upgrades (sets the ~90s-per-level pace)
+  const cap = 38 + lvl("aero") * 3 + lvl("power") * 2.5 + lvl("wings") * 1.5 + save.tier * 2 + (boosting ? 24 : 0);
+  speed = vel.length();
+  if (speed > cap) vel.multiplyScalar(lerp(1, cap / speed, clamp(2.5 * dt, 0, 1)));
+
   pos.addScaledVector(vel, dt);
+
+  // sea on both sides is a no-go: stray past the corridor edge and you ditch
+  if (Math.abs(pos.x) > CORRIDOR) { crash(); }
 
   // terrain collision + bounce
   const gh = terrainH(pos.x, pos.z) + PLANE_GROUND;
@@ -955,16 +977,14 @@ function updateFlight(dt) {
     if (pos.z - o.z > 80) placeObstacle(o);
   }
 
-  // goal gate — fly past it to bank a bonus and set a farther goal
-  goalGate.rotation.y = 0;
-  if (prevZ < goalDist && pos.z >= goalDist) {
-    goalsReached++;
-    const bonus = 150 + goalsReached * 50;
-    runCoins += bonus;
-    spawnBurst(goalGate.position.x, goalGate.position.y + 40, goalDist, 0xffd454, 26, 26);
-    Sound.evolve(); haptic([20, 40, 20]); shakeT = Math.max(shakeT, 0.3);
-    goalBanner("🏁 GOAL! +" + bonus);
-    goalDist += GOAL_STEP; placeGoalGate();
+  // FINISH — reaching the end of the level is the goal; it advances you to the next level
+  if (!levelCleared && prevZ < curLevelLen && pos.z >= curLevelLen) {
+    levelCleared = true;
+    spawnBurst(0, finishGate.position.y + 50, curLevelLen, 0x7dffb0, 30, 28);
+    Sound.evolve(); haptic([20, 60, 20]); shakeT = Math.max(shakeT, 0.3);
+    goalBanner("🏁 LEVEL COMPLETE!");
+    endRun();
+    return;
   }
 
   // plane trail (brighter while boosting)
@@ -975,7 +995,7 @@ function updateFlight(dt) {
   updateParts(dt);
   updateTrail(dt);
   updateShadow();
-  updateLevel(dt);
+  updateSea(pos.x, pos.z);
   updateTerrain(pos.x, pos.z);
   updateChaseCamera(dt, f);
   updateHUD();
@@ -1010,8 +1030,7 @@ function updateCrash(dt) {
 const camGoal = new THREE.Vector3(), camLook = new THREE.Vector3(), fh = new THREE.Vector3();
 function updateChaseCamera(dt, f) {
   fh.set(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
-  camGoal.copy(pos).addScaledVector(fh, -15).add(new THREE.Vector3(0, 6.5, 0));
-  // don't let camera dip under terrain
+  camGoal.copy(pos).addScaledVector(fh, -15); camGoal.y += 6.5;
   const camGround = terrainH(camGoal.x, camGoal.z) + 3;
   if (camGoal.y < camGround) camGoal.y = camGround;
   camera.position.lerp(camGoal, Math.min(1, dt * 4));
@@ -1020,17 +1039,16 @@ function updateChaseCamera(dt, f) {
     const m = shakeT * 12;
     camera.position.x += rand(-m, m); camera.position.y += rand(-m, m);
   }
-  camLook.copy(pos).addScaledVector(fh, 12).add(new THREE.Vector3(0, 1.5, 0));
+  camLook.copy(pos).addScaledVector(fh, 12); camLook.y += 1.5;
   camera.lookAt(camLook);
 }
 
 // ---------- Aim camera / preview ----------
 function updateAim(dt) {
-  // gentle behind-the-plane view
   fh.set(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
-  camGoal.copy(pos).addScaledVector(fh, -14).add(new THREE.Vector3(0, 6, 0));
+  camGoal.copy(pos).addScaledVector(fh, -14); camGoal.y += 6;
   camera.position.lerp(camGoal, Math.min(1, dt * 3));
-  camLook.copy(pos).add(new THREE.Vector3(0, 2, 8));
+  camLook.copy(pos); camLook.y += 2; camLook.z += 8;
   camera.lookAt(camLook);
   updateShadow();
   spinCoins(dt);
@@ -1048,15 +1066,21 @@ function spinCoins(dt) { for (const c of coins) if (!c.got) c.mesh.rotation.z +=
 // ---------- End run ----------
 function endRun() {
   state = "result";
-  const meters = Math.max(0, Math.floor(pos.z));
-  const earned = runCoins + Math.floor(meters / 4);
+  const meters = Math.max(0, Math.floor(Math.min(pos.z, curLevelLen)));
+  const completedLevel = save.level + 1;            // for display, before advancing
+  let earned = runCoins + Math.floor(meters / 8);   // tighter economy: less per metre
+  let completeBonus = 0;
+  if (levelCleared) { completeBonus = 200 + save.level * 60; earned += completeBonus; }
   save.coins += earned;
-  const prevTier = save.tier;
   if (meters > save.best) save.best = meters;
-  save.tier = computeTier();                 // evolution earned by distance milestones
+  const prevTier = save.tier;
+  if (levelCleared) save.level += 1;                // advance to the next level
+  save.tier = computeTier();
   if (save.tier > prevTier) { pendingEvoName = TIERS[save.tier].name; Sound.evolve(); }
   const missionReward = evalMissions({ dist: meters, coins: runCoinPickups, rings: ringsPassed });
   persist();
+  const resTitle = document.getElementById("resultTitle");
+  if (resTitle) resTitle.textContent = levelCleared ? "LEVEL " + completedLevel + " COMPLETE!" : "DITCHED!";
   document.getElementById("runDist").textContent = meters;
   document.getElementById("runCoins").textContent = earned;
   document.getElementById("runBest").textContent = save.best;
@@ -1065,6 +1089,9 @@ function endRun() {
   else notice.classList.add("hidden");
   const mEl = document.getElementById("missionResult");
   if (mEl) { if (missionReward > 0) { mEl.classList.remove("hidden"); mEl.textContent = "🎯 Mission complete +" + missionReward + " coins!"; } else mEl.classList.add("hidden"); }
+  // the launch button continues to the (possibly new) current level
+  const again = document.getElementById("againBtn");
+  if (again) again.textContent = levelCleared ? "NEXT LEVEL ✈" : "RETRY ✈";
   hud.classList.add("hidden");
   hideFlightControls();
   showOverlay("resultScreen");
@@ -1085,13 +1112,15 @@ function goalBanner(text) {
   el.textContent = text; el.classList.add("show");
   clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2000);
 }
+const cabinEl = document.getElementById("cabinWarn");
 function updateHUD() {
   distBig.innerHTML = Math.max(0, Math.floor(pos.z)) + "<small>METERS</small>";
   coinHud.innerHTML = "◉ " + runCoins + (comboMult > 1 ? ` <span style="color:#49e0ff">×${comboMult.toFixed(1)}</span>` : "");
-  if (goalHud) goalHud.textContent = "🏁 " + Math.max(0, goalDist - Math.floor(pos.z)) + " m";
+  if (goalHud) goalHud.textContent = "🏁 " + Math.max(0, curLevelLen - Math.floor(pos.z)) + " m";
   const frac = clamp(boostFuel / boostMax, 0, 1);
   fuelFill.style.width = (frac * 100) + "%";
   fuelLabel.textContent = boostFuel > 0 ? "BOOST FUEL 🔥" : "BOOST EMPTY — GLIDE!";
+  if (cabinEl) cabinEl.classList.toggle("show", cabinWarn);
 }
 
 // ---------- Input ----------
@@ -1122,11 +1151,27 @@ function aimValues() {
   const lp = 0.35 + power * 0.4;            // harder pull = steeper + faster
   return { power, lp };
 }
+function predictArc() {
+  const { power, lp } = aimValues();
+  const maxSpeed = 56 + lvl("power") * 18 + save.tier * 6;
+  let speed = lerp(32, maxSpeed, power);
+  if (power >= PERFECT_LO && power <= PERFECT_HI) speed *= 1.18;
+  let px = pos.x, py = pos.y, pz = pos.z;
+  let vx = 0, vy = Math.sin(lp) * speed, vz = Math.cos(lp) * speed;
+  const h = 0.06;
+  for (let i = 0; i < ARC_COUNT; i++) {
+    for (let s = 0; s < 5; s++) { vy -= G * h; px += vx * h; py += vy * h; pz += vz * h; }
+    const m = arcDots[i]; m.visible = true; m.position.set(px, py, pz);
+    m.scale.setScalar(lerp(1.3, 0.5, i / ARC_COUNT));
+  }
+}
 function showAimPreview() {
   const { power } = aimValues();
   fuelFill.style.width = (power * 100) + "%";
-  fuelLabel.textContent = "POWER " + Math.round(power * 100) + "% — release!";
+  const perfect = power >= PERFECT_LO && power <= PERFECT_HI;
+  fuelLabel.textContent = perfect ? "✦ PERFECT — release!" : "POWER " + Math.round(power * 100) + "%";
   aimHintEl.textContent = "";
+  predictArc();
 }
 canvas.addEventListener("touchstart", e => { e.preventDefault(); if (state === "aim") onDown(e); else if (state === "flight") flightStart(e.changedTouches); }, { passive: false });
 canvas.addEventListener("touchmove",  e => { e.preventDefault(); if (state === "aim") onMove(e); else if (state === "flight") flightMove(e.changedTouches); }, { passive: false });
@@ -1215,6 +1260,7 @@ function loop(ts) {
   perfTick(dt);
   if (state === "flight") { if (crashT > 0) updateCrash(dt); else updateFlight(dt); }
   else if (state === "aim") updateAim(dt);
+  else if (state === "paused") { /* frozen */ }
   else updateTitle(dt);
   // drifting clouds
   for (const c of clouds) { c.position.x += dt * 1.5; if (c.position.x > 320) c.position.x = -320; }
@@ -1227,6 +1273,7 @@ const overlays = {
   hangar: document.getElementById("hangarScreen"),
   result: document.getElementById("resultScreen"),
   settings: document.getElementById("settingsScreen"),
+  pause: document.getElementById("pauseScreen"),
 };
 function hideAllOverlays() { for (const k in overlays) overlays[k].classList.add("hidden"); }
 function showOverlay(key) { hideAllOverlays(); (overlays[key] || document.getElementById(key)).classList.remove("hidden"); }
@@ -1326,10 +1373,23 @@ function initSettingsUI() {
     onChange();
   });
   const open = document.getElementById("settingsBtn");
-  if (open) open.addEventListener("click", () => showOverlay("settings"));
+  if (open) open.addEventListener("click", () => { settingsReturn = "title"; showOverlay("settings"); });
   const close = document.getElementById("settingsClose");
-  if (close) close.addEventListener("click", () => showOverlay("title"));
+  if (close) close.addEventListener("click", () => showOverlay(settingsReturn));
+
+  // pause / in-flight access
+  const pb = document.getElementById("pauseBtn");
+  if (pb) pb.addEventListener("click", pauseGame);
+  const rb = document.getElementById("resumeBtn");
+  if (rb) rb.addEventListener("click", resumeGame);
+  const ps = document.getElementById("pauseSettingsBtn");
+  if (ps) ps.addEventListener("click", () => { settingsReturn = "pause"; showOverlay("settings"); });
+  const qb = document.getElementById("quitBtn");
+  if (qb) qb.addEventListener("click", () => { hud.classList.add("hidden"); hideFlightControls(); goHangar(); });
 }
+let settingsReturn = "title";
+function pauseGame() { if (state !== "flight") return; state = "paused"; showOverlay("pause"); }
+function resumeGame() { if (state !== "paused") return; hideAllOverlays(); state = "flight"; }
 
 function checkDaily() {
   let today = "";
@@ -1350,20 +1410,21 @@ loadSave();
 applyQuality(save.settings.quality === "low" ? "low" : "high");
 Sound.setEnabled(save.settings.sound);
 initSettingsUI();
-regenLevels();
+applyZone(zoneForLevel(save.level));
+curLevelLen = levelLength(save.level);
 buildPlane(save.tier);
 pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
 plane.position.copy(pos);
 updateTerrain(0, 6);
+updateSea(0, 6);
 resetCoins();
 resetCity();
 resetFuels();
 resetRings();
 resetThermals();
 resetObstacles();
-resetGoal();
+placeFinish();
 updateShadow();
-updateLevel(0);
 checkDaily();
 document.getElementById("bestTitle").textContent = save.best;
 loadingEl.classList.add("hidden");
