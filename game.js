@@ -20,7 +20,7 @@ const TAU = Math.PI * 2, DEG = Math.PI / 180;
 
 // ---------- Sound (WebAudio) + haptics ----------
 const Sound = (() => {
-  let ctx = null;
+  let ctx = null, enabled = true;
   function ac() {
     if (ctx) return ctx;
     const AC = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
@@ -29,6 +29,7 @@ const Sound = (() => {
     return ctx;
   }
   function tone(freq, dur, type, gain, slideTo) {
+    if (!enabled) return;
     const c = ac(); if (!c) return;
     if (c.state === "suspended") { try { c.resume(); } catch (e) {} }
     const o = c.createOscillator(), g = c.createGain();
@@ -40,6 +41,7 @@ const Sound = (() => {
     o.start(); o.stop(c.currentTime + dur);
   }
   function noise(dur, gain) {
+    if (!enabled) return;
     const c = ac(); if (!c) return;
     if (c.state === "suspended") { try { c.resume(); } catch (e) {} }
     const n = Math.max(1, Math.floor(c.sampleRate * dur));
@@ -52,7 +54,8 @@ const Sound = (() => {
     src.connect(g); g.connect(c.destination); src.start();
   }
   return {
-    resume() { const c = ac(); if (c && c.state === "suspended") { try { c.resume(); } catch (e) {} } },
+    setEnabled(v) { enabled = !!v; },
+    resume() { if (!enabled) return; const c = ac(); if (c && c.state === "suspended") { try { c.resume(); } catch (e) {} } },
     coin()   { tone(900, 0.10, "square", 0.10, 1350); },
     ring()   { tone(440, 0.18, "sawtooth", 0.16, 950); },
     fuel()   { tone(330, 0.16, "sine", 0.16, 680); },
@@ -61,16 +64,19 @@ const Sound = (() => {
     evolve() { tone(523, 0.5, "triangle", 0.2, 1046); },
   };
 })();
-function haptic(p) { try { if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+function haptic(p) { try { if (save && save.settings && !save.settings.haptics) return; if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
 
 // ---------- Terrain height field (world-anchored, infinite illusion) ----------
-// Amplitude shifts with the biome: coast flattens, mountains rise (smoothly blended).
+// Amplitude shifts with the current level zone (coast flattens, highlands rise), blended at edges.
 function terrainAmp(z) {
-  const pts = [[0, 1.0], [900, 0.45], [1800, 2.7], [3000, 1.3]];
-  for (let i = 0; i < pts.length - 1; i++) {
-    if (z < pts[i + 1][0]) return lerp(pts[i][1], pts[i + 1][1], clamp((z - pts[i][0]) / (pts[i + 1][0] - pts[i][0]), 0, 1));
-  }
-  return 1.3;
+  if (typeof levelOrder === "undefined") return 1.0;
+  const len = 600; // must match LEVEL_LEN
+  const i = Math.floor(Math.max(0, z) / len);
+  const a = LEVELS[levelOrder[i % levelOrder.length]];
+  const b = LEVELS[levelOrder[(i + 1) % levelOrder.length]];
+  const frac = clamp((z - i * len) / len, 0, 1);
+  const t = clamp((frac - 0.78) / 0.22, 0, 1);
+  return lerp(a.amp, b.amp, t);
 }
 function terrainH(x, z) {
   let h = Math.sin(x * 0.012) * 4
@@ -117,6 +123,7 @@ function loadSave() {
   for (const u of UPGRADES) save.up[u.key] = save.up[u.key] || 0;
   if (!Array.isArray(save.missions) || save.missions.length < 3) save.missions = [makeMission(), makeMission(), makeMission()];
   save.lastDaily = save.lastDaily || "";
+  save.settings = Object.assign({ invert: false, sens: 1.0, sound: true, haptics: true, quality: "auto" }, save.settings || {});
   save.tier = computeTier();
 }
 function persist() { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
@@ -167,6 +174,31 @@ function resize() {
 }
 window.addEventListener("resize", resize);
 resize();
+
+// ---------- Quality / performance guard ----------
+const MAX_DPR = Math.min(window.devicePixelRatio || 1, 2);
+let qFog = 1;              // fog distance multiplier (lower = closer = cheaper)
+let qLevel = "high";      // current applied quality
+function applyQuality(q) {
+  qLevel = q;
+  if (q === "low") { renderer.setPixelRatio(Math.min(MAX_DPR, 1)); qFog = 0.75; }
+  else { renderer.setPixelRatio(MAX_DPR); qFog = 1; }
+}
+// adaptive monitor (only active when setting is "auto")
+let fpsAccum = 0, fpsFrames = 0, fpsTimer = 0;
+function perfTick(dt) {
+  const mode = save && save.settings ? save.settings.quality : "auto";
+  if (mode === "low") { if (qLevel !== "low") applyQuality("low"); return; }
+  if (mode === "high") { if (qLevel !== "high") applyQuality("high"); return; }
+  // auto
+  fpsAccum += dt; fpsFrames++; fpsTimer += dt;
+  if (fpsTimer >= 1.5) {
+    const fps = fpsFrames / fpsAccum;
+    if (fps < 42 && qLevel !== "low") applyQuality("low");
+    else if (fps > 56 && qLevel !== "high") applyQuality("high");
+    fpsAccum = 0; fpsFrames = 0; fpsTimer = 0;
+  }
+}
 
 // ---------- Textures ----------
 function makeGlowTexture(color) {
@@ -360,9 +392,9 @@ function nextPlacement() {
   let guard = 0;
   while (rowSlots.length === 0) {
     genZ += rand(40, 78);
-    if (genZ > CITY_END) return null;             // city ends; no more buildings past it
-    rowSlots = buildRow(genZ);
-    if (++guard > 40) return null;
+    if (levelAt(genZ).build) rowSlots = buildRow(genZ);
+    else genZ = (levelIndexAt(genZ) + 1) * LEVEL_LEN + 4;  // skip over non-city zones
+    if (++guard > 80) return null;
   }
   const s = rowSlots.pop();
   return { x: s.x, z: genZ, w: s.w, d: s.d, h: s.h };
@@ -539,48 +571,75 @@ function placeObstacle(o) {
 }
 function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) placeObstacle(o); }
 
-// ---------- Biomes (city -> coast -> mountains -> space) ----------
-const CITY_END = 950;
-const BIOMES = [
-  { name: "City",      z: 0,    sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, fogNear: 350, fogFar: 1100 },
-  { name: "Coast",     z: 900,  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe6d39a, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.45, fogNear: 380, fogFar: 1200 },
-  { name: "Mountains", z: 1800, sky: 0x8fb6dd, fog: 0xa7bcd4, ground: 0x86997a, hs: 0xd2e3f2, hg: 0x586a48, amp: 2.6, fogNear: 280, fogFar: 1000 },
-  { name: "Space",     z: 3000, sky: 0x09081e, fog: 0x09081e, ground: 0x393a57, hs: 0x3a4570, hg: 0x14142a, amp: 1.3, fogNear: 240, fogFar: 1300 },
+// ---------- Levels (a randomized cycle of bright themed zones) ----------
+const LEVEL_LEN = 600;
+const LEVELS = [
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100 },
+  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250 },
+  { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050 },
+  { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150 },
+  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300 },
+  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200 },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150 },
 ];
-function biomeAmp(z) {
-  // smooth amplitude blend so mountains rise and coast flattens
-  let b = BIOMES[0];
-  for (const bi of BIOMES) if (z >= bi.z) b = bi;
-  return b.amp;
+let levelOrder = [0];
+function regenLevels() {
+  // first zone is always the Metropolis (matches the runway start); the rest are a random cycle
+  const rest = [1, 2, 3, 4, 5, 6];
+  for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+  levelOrder = [0, ...rest];
 }
+function levelIndexAt(z) { return Math.floor(Math.max(0, z) / LEVEL_LEN); }
+function levelAt(z) { return LEVELS[levelOrder[levelIndexAt(z) % levelOrder.length]]; }
 const _c1 = new THREE.Color(), _c2 = new THREE.Color();
-function curBiome() {
-  let i = 0;
-  for (let k = 0; k < BIOMES.length; k++) if (curZ() >= BIOMES[k].z) i = k;
-  return i;
-}
-let _curZ = 0; function curZ() { return _curZ; }
 function lerpHex(target, fromHex, toHex, t) {
   _c1.setHex(fromHex); _c2.setHex(toHex);
   if (target.copy) target.copy(_c1);
   if (target.lerp) target.lerp(_c2, t);
 }
-function updateBiome(dt) {
-  _curZ = pos.z;
-  let i = 0; for (let k = 0; k < BIOMES.length; k++) if (pos.z >= BIOMES[k].z) i = k;
-  const a = BIOMES[i], b = BIOMES[Math.min(i + 1, BIOMES.length - 1)];
-  const span = Math.max(1, b.z - a.z);
-  const t = clamp((pos.z - a.z) / span, 0, 1);
+let shownLevelName = "";
+function updateLevel(dt) {
+  const i = levelIndexAt(pos.z);
+  const a = LEVELS[levelOrder[i % levelOrder.length]];
+  const b = LEVELS[levelOrder[(i + 1) % levelOrder.length]];
+  const frac = clamp((pos.z - i * LEVEL_LEN) / LEVEL_LEN, 0, 1);
+  const t = clamp((frac - 0.78) / 0.22, 0, 1); // blend over the last stretch of each zone
   if (scene.background && scene.background.setHex) lerpHex(scene.background, a.sky, b.sky, t);
   if (scene.fog) {
     if (scene.fog.color && scene.fog.color.setHex) lerpHex(scene.fog.color, a.fog, b.fog, t);
-    scene.fog.near = lerp(a.fogNear, b.fogNear, t);
-    scene.fog.far = lerp(a.fogFar, b.fogFar, t);
+    scene.fog.near = lerp(a.fogNear, b.fogNear, t) * qFog;
+    scene.fog.far = lerp(a.fogFar, b.fogFar, t) * qFog;
   }
   if (terrainMat.color && terrainMat.color.setHex) lerpHex(terrainMat.color, a.ground, b.ground, t);
   if (hemi.color && hemi.color.setHex) lerpHex(hemi.color, a.hs, b.hs, t);
   if (hemi.groundColor && hemi.groundColor.setHex) lerpHex(hemi.groundColor, a.hg, b.hg, t);
+  // announce a new zone
+  if (a.name !== shownLevelName) {
+    shownLevelName = a.name;
+    const el = document.getElementById("levelName");
+    if (el) { el.textContent = "▸ " + a.name; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2200); }
+  }
 }
+
+// ---------- Goal gate (a finish line to fly through; reaching it sets a new, farther goal) ----------
+const GOAL_STEP = 800;
+let goalDist = GOAL_STEP, goalsReached = 0;
+const goalGate = (() => {
+  const g = new THREE.Group();
+  const pillarMat = new THREE.MeshStandardMaterial({ color: 0xffd454, emissive: 0x6a4e00, emissiveIntensity: 0.5, metalness: 0.5, roughness: 0.4 });
+  const bannerMat = new THREE.MeshStandardMaterial({ color: 0x49e0ff, emissive: 0x0c5066, emissiveIntensity: 0.6 });
+  const L = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 60, 10), pillarMat); L.position.set(-22, 30, 0); g.add(L);
+  const R = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 60, 10), pillarMat); R.position.set(22, 30, 0); g.add(R);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(48, 6, 3), bannerMat); top.position.set(0, 58, 0); g.add(top);
+  g.visible = false; scene.add(g);
+  return g;
+})();
+function placeGoalGate() {
+  const gx = laneX(goalDist), gy = terrainH(gx, goalDist);
+  goalGate.position.set(gx, gy, goalDist);
+  goalGate.visible = true;
+}
+function resetGoal() { goalDist = GOAL_STEP; goalsReached = 0; placeGoalGate(); }
 
 // ---------- Missions ----------
 function makeMission() {
@@ -686,18 +745,21 @@ function setupRun() {
   boostFuel = boostMax;
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
   comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z;
+  regenLevels(); shownLevelName = "";
   resetCoins();
   resetCity();
   resetFuels();
   resetRings();
   resetThermals();
   resetObstacles();
+  resetGoal();
   for (const p of parts) { p.active = false; p.m.visible = false; }
   for (const p of trail) { p.life = 0; p.m.visible = false; }
   updateTerrain(pos.x, pos.z);
   plane.position.copy(pos);
   plane.rotation.set(0, 0, 0);
   updateShadow();
+  updateLevel(0);
 }
 
 function forwardVec(out) {
@@ -727,8 +789,10 @@ function updateFlight(dt) {
   let targetPitch = pitch * 0.985; // relax toward level when not steering
   let yawRate = 0;
   if (joy.active) {
-    targetPitch = clamp(joy.y * 0.8, -0.7, 0.85);   // push stick DOWN = climb (inverted)
-    yawRate = -joy.x * 1.2;                          // stick right = bank right on screen
+    const sens = (save.settings && save.settings.sens) || 1;
+    const inv = (save.settings && save.settings.invert) ? -1 : 1;
+    targetPitch = clamp(inv * joy.y * 0.8 * sens, -0.75, 0.9);  // default: push stick DOWN = climb
+    yawRate = -joy.x * 1.2 * sens;                              // stick right = bank right on screen
   }
   boosting = boostHeld && boostFuel > 0 && hasBoost();
 
@@ -891,6 +955,18 @@ function updateFlight(dt) {
     if (pos.z - o.z > 80) placeObstacle(o);
   }
 
+  // goal gate — fly past it to bank a bonus and set a farther goal
+  goalGate.rotation.y = 0;
+  if (prevZ < goalDist && pos.z >= goalDist) {
+    goalsReached++;
+    const bonus = 150 + goalsReached * 50;
+    runCoins += bonus;
+    spawnBurst(goalGate.position.x, goalGate.position.y + 40, goalDist, 0xffd454, 26, 26);
+    Sound.evolve(); haptic([20, 40, 20]); shakeT = Math.max(shakeT, 0.3);
+    goalBanner("🏁 GOAL! +" + bonus);
+    goalDist += GOAL_STEP; placeGoalGate();
+  }
+
   // plane trail (brighter while boosting)
   trailT -= dt;
   if (trailT <= 0) { emitTrail(pos.x, pos.y, pos.z, boosting); trailT = boosting ? 0.03 : 0.06; }
@@ -899,7 +975,7 @@ function updateFlight(dt) {
   updateParts(dt);
   updateTrail(dt);
   updateShadow();
-  updateBiome(dt);
+  updateLevel(dt);
   updateTerrain(pos.x, pos.z);
   updateChaseCamera(dt, f);
   updateHUD();
@@ -1002,9 +1078,17 @@ const fuelWrap = document.getElementById("fuelWrap");
 const fuelFill = document.getElementById("fuelFill");
 const fuelLabel = document.getElementById("fuelLabel");
 const aimHintEl = document.getElementById("aimHint");
+const goalHud = document.getElementById("goalHud");
+function goalBanner(text) {
+  const el = document.getElementById("goalBanner");
+  if (!el) return;
+  el.textContent = text; el.classList.add("show");
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2000);
+}
 function updateHUD() {
   distBig.innerHTML = Math.max(0, Math.floor(pos.z)) + "<small>METERS</small>";
   coinHud.innerHTML = "◉ " + runCoins + (comboMult > 1 ? ` <span style="color:#49e0ff">×${comboMult.toFixed(1)}</span>` : "");
+  if (goalHud) goalHud.textContent = "🏁 " + Math.max(0, goalDist - Math.floor(pos.z)) + " m";
   const frac = clamp(boostFuel / boostMax, 0, 1);
   fuelFill.style.width = (frac * 100) + "%";
   fuelLabel.textContent = boostFuel > 0 ? "BOOST FUEL 🔥" : "BOOST EMPTY — GLIDE!";
@@ -1123,6 +1207,7 @@ function loop(ts) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.04, (ts - last) / 1000 || 0);
   last = ts;
+  perfTick(dt);
   if (state === "flight") { if (crashT > 0) updateCrash(dt); else updateFlight(dt); }
   else if (state === "aim") updateAim(dt);
   else updateTitle(dt);
@@ -1136,6 +1221,7 @@ const overlays = {
   title: document.getElementById("titleScreen"),
   hangar: document.getElementById("hangarScreen"),
   result: document.getElementById("resultScreen"),
+  settings: document.getElementById("settingsScreen"),
 };
 function hideAllOverlays() { for (const k in overlays) overlays[k].classList.add("hidden"); }
 function showOverlay(key) { hideAllOverlays(); (overlays[key] || document.getElementById(key)).classList.remove("hidden"); }
@@ -1205,6 +1291,41 @@ document.getElementById("resetBtn").addEventListener("click", () => {
   document.getElementById("bestTitle").textContent = save.best;
 });
 
+// ---------- Settings ----------
+function setToggleBtn(id, on) { const el = document.getElementById(id); if (el) { el.classList.toggle("on", !!on); el.textContent = on ? "ON" : "OFF"; } }
+function initSettingsUI() {
+  const s = save.settings;
+  const sens = document.getElementById("setSens");
+  if (sens) { sens.value = String(s.sens); const lbl = document.getElementById("setSensVal"); if (lbl) lbl.textContent = Number(s.sens).toFixed(2) + "×"; }
+  setToggleBtn("setInvert", s.invert);
+  setToggleBtn("setSound", s.sound);
+  setToggleBtn("setHaptics", s.haptics);
+  const q = document.getElementById("setQuality"); if (q) q.value = s.quality;
+
+  const onChange = () => { persist(); };
+  if (sens) sens.addEventListener("input", () => {
+    s.sens = clamp(parseFloat(sens.value) || 1, 0.4, 1.6);
+    const lbl = document.getElementById("setSensVal"); if (lbl) lbl.textContent = s.sens.toFixed(2) + "×";
+    onChange();
+  });
+  const bindToggle = (id, key, after) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", () => { s[key] = !s[key]; setToggleBtn(id, s[key]); if (after) after(); onChange(); });
+  };
+  bindToggle("setInvert", "invert");
+  bindToggle("setSound", "sound", () => Sound.setEnabled(s.sound));
+  bindToggle("setHaptics", "haptics");
+  if (q) q.addEventListener("change", () => {
+    s.quality = q.value;
+    applyQuality(s.quality === "low" ? "low" : "high");
+    onChange();
+  });
+  const open = document.getElementById("settingsBtn");
+  if (open) open.addEventListener("click", () => showOverlay("settings"));
+  const close = document.getElementById("settingsClose");
+  if (close) close.addEventListener("click", () => showOverlay("title"));
+}
+
 function checkDaily() {
   let today = "";
   try { today = new Date().toISOString().slice(0, 10); } catch (e) { return; }
@@ -1221,6 +1342,10 @@ function checkDaily() {
 
 // ---------- Boot ----------
 loadSave();
+applyQuality(save.settings.quality === "low" ? "low" : "high");
+Sound.setEnabled(save.settings.sound);
+initSettingsUI();
+regenLevels();
 buildPlane(save.tier);
 pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
 plane.position.copy(pos);
@@ -1231,8 +1356,9 @@ resetFuels();
 resetRings();
 resetThermals();
 resetObstacles();
+resetGoal();
 updateShadow();
-updateBiome(0);
+updateLevel(0);
 checkDaily();
 document.getElementById("bestTitle").textContent = save.best;
 loadingEl.classList.add("hidden");

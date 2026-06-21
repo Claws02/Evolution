@@ -11,7 +11,15 @@ A **3D** browser slingshot launch-and-fly distance game, built to play on an iPh
 5. **Don't crash!** Clipping a building, blimp, crane, or bird flock ends the run instantly (with a debris burst and a beat of slow-mo).
 6. **Travel through biomes** as you fly farther: City → Coast → Mountains → Space, each with its own sky, ground, and skyline.
 
+6. **Travel through a random cycle of bright zones** — Metropolis, Coastline, Highlands, Sunset Mesa, Meadows, Glacier, Sky City — reshuffled every run, each with its own sky, ground, and terrain.
+7. **Chase the goal** — a 🏁 finish gate sits ahead; fly through it to bank a bonus and set a new, farther goal.
+
 > Flight tip: point the nose **down to pick up speed**, and **up to trade speed for height** — manage your energy to glide farther.
+
+### Settings, offline & performance
+- **Settings** (⚙ on the title screen): joystick sensitivity, invert pitch, sound on/off, haptics on/off, and graphics quality (Auto/High/Low).
+- **Installable PWA with offline play** — a service worker caches the whole app (including Three.js), so after the first load it runs with no network. Add to Home Screen for a fullscreen, app-like experience.
+- **Adaptive performance guard** — in Auto quality the game watches the frame rate and dials back pixel ratio / draw distance on slower devices.
 
 ### Progression
 - **Coins** buy upgrades: Launch Power, Boost Thrust, Fuel Tank, Aerodynamics, Wings & Lift, **Coin Magnet**, and **Coin Multiplier**.

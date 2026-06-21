@@ -88,7 +88,9 @@ function mockEl(id) {
   const listeners = {};
   const el = {
     id, _text: "", _html: "", style: {}, children: [],
-    classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); }, contains(c) { return this._s.has(c); } },
+    value: "", checked: false,
+    classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); }, contains(c) { return this._s.has(c); },
+      toggle(c, force) { const on = force === undefined ? !this._s.has(c) : !!force; if (on) this._s.add(c); else this._s.delete(c); return on; } },
     set textContent(v) { this._text = String(v); }, get textContent() { return this._text; },
     set innerHTML(v) { this._html = String(v); }, get innerHTML() { return this._html; },
     addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); },
@@ -217,7 +219,14 @@ fire("againBtn", "click");
 try { frames(5); assert(true, "relaunch after result works"); }
 catch (e) { assert(false, "relaunch threw: " + e.message); }
 
-// 7) Reset button wipes progress
+// 7) Settings open + a toggle works, and the goal HUD has a value
+fire("settingsBtn", "click");
+assert(!document.getElementById("settingsScreen").classList.contains("hidden"), "settings screen opens");
+fire("setInvert", "click");
+assert(JSON.parse(localStore.get("pe3d_save_v1")).settings.invert === true, "invert-pitch setting persisted");
+assert(document.getElementById("goalHud")._text.indexOf("m") >= 0, "goal HUD shows a distance");
+
+// 8) Reset button wipes progress
 fire("resetBtn", "click");
 assert(localStore.get("pe3d_save_v1") == null || JSON.parse(localStore.get("pe3d_save_v1") || "{}").coins === 0,
   "reset cleared coins");

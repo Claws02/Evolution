@@ -110,6 +110,24 @@
   #distBig small { display:block; font-size:.32em; letter-spacing:3px; opacity:.85; font-weight:700; }
   #coinHud { position:absolute; top: calc(env(safe-area-inset-top) + 14px); right:16px;
              font-weight:800; font-size:20px; text-shadow:0 2px 6px rgba(0,0,0,.4); color:#ffe27a; }
+  #goalHud { position:absolute; top: calc(env(safe-area-inset-top) + 40px); right:16px;
+             font-weight:800; font-size:14px; text-shadow:0 2px 6px rgba(0,0,0,.4); color:#fff; }
+  #levelName { position:absolute; left:0; right:0; top: calc(env(safe-area-inset-top) + 70px); text-align:center;
+               font-weight:900; font-size:18px; letter-spacing:2px; color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.55);
+               opacity:0; transition:opacity .4s ease; }
+  #levelName.show { opacity:1; }
+  #goalBanner { position:absolute; left:0; right:0; top:38%; text-align:center; font-weight:900;
+                font-size:clamp(22px,7vw,40px); color:#ffd454; text-shadow:0 3px 10px rgba(0,0,0,.55);
+                opacity:0; transform:scale(.8); transition:opacity .25s ease, transform .25s ease; }
+  #goalBanner.show { opacity:1; transform:scale(1); }
+  /* Settings controls */
+  .setRow { display:flex; justify-content:space-between; align-items:center; gap:12px; font-size:14px; }
+  .toggle { font-weight:800; font-size:13px; color:#06121f; background:#6f86a5; border:none; border-radius:999px;
+            padding:7px 16px; min-width:58px; box-shadow:0 3px 0 #4d617c; }
+  .toggle.on { background:linear-gradient(#7dffb0,#39d6ff); box-shadow:0 3px 0 #2f8f6a; }
+  .sel { font:inherit; font-weight:700; font-size:14px; padding:7px 12px; border-radius:12px; border:none;
+         background:#dff0ff; color:#06121f; }
+  input[type=range] { width:120px; accent-color:#49e0ff; }
   #fuelWrap { position:absolute; left:16px; top: calc(env(safe-area-inset-top) + 48px); width:150px; }
   #fuelBar { height:14px; border-radius:8px; background:rgba(0,0,0,.3); overflow:hidden; }
   #fuelFill { height:100%; width:100%; background:linear-gradient(90deg,#ff7a2a,#ffd24a); border-radius:8px; transition: width .05s linear; }
@@ -148,6 +166,9 @@
 <div id="hud" class="hidden">
   <div id="distBig">0<small>METERS</small></div>
   <div id="coinHud">◉ 0</div>
+  <div id="goalHud">🏁 0 m</div>
+  <div id="levelName"></div>
+  <div id="goalBanner"></div>
   <div id="aimHint"></div>
   <div id="fuelWrap">
     <div id="fuelBar"><div id="fuelFill"></div></div>
@@ -163,7 +184,30 @@
   <p>Sling your plane off the ramp into a 3D sky, then <b>fly it with the on-screen joystick</b>. Buy a <b>booster</b> to unlock the boost button. Grab coins to upgrade &amp; <b>evolve</b> your aircraft — better parts mean longer flights.</p>
   <button id="playBtn">START</button>
   <p class="tag">Best distance: <span id="bestTitle">0</span> m</p>
-  <button id="resetBtn" class="reset">Reset progress</button>
+  <div class="row2">
+    <button id="settingsBtn" class="reset">⚙ Settings</button>
+    <button id="resetBtn" class="reset">Reset progress</button>
+  </div>
+</div>
+
+<!-- Settings -->
+<div id="settingsScreen" class="overlay hidden">
+  <h1 style="font-size:clamp(28px,8vw,52px)">SETTINGS</h1>
+  <div class="panel">
+    <div class="setRow"><span>Joystick sensitivity</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <input id="setSens" type="range" min="0.4" max="1.6" step="0.05" value="1">
+        <b id="setSensVal" style="min-width:46px;text-align:right">1.00×</b>
+      </span>
+    </div>
+    <div class="setRow"><span>Invert pitch (up = climb)</span><button id="setInvert" class="toggle">OFF</button></div>
+    <div class="setRow"><span>Sound effects</span><button id="setSound" class="toggle">ON</button></div>
+    <div class="setRow"><span>Haptics (vibration)</span><button id="setHaptics" class="toggle">ON</button></div>
+    <div class="setRow"><span>Graphics quality</span>
+      <select id="setQuality" class="sel"><option value="auto">Auto</option><option value="high">High</option><option value="low">Low</option></select>
+    </div>
+  </div>
+  <button id="settingsClose">DONE</button>
 </div>
 
 <!-- Hangar / shop -->
@@ -196,5 +240,12 @@
 
 <script src="vendor/three.min.js"></script>
 <script src="game.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+</script>
 </body>
 </html>
