@@ -9,7 +9,8 @@ A **3D** browser slingshot launch-and-fly distance game, built to play on an iPh
 3. **Work for your speed** — this is a demanding flyer. A stock plane sinks fast and stalls; you have to **dive to build speed**, spend boost, catch rings, and ride thermals to keep moving. Upgrades are what let you sustain a cruise.
 4. **Mind the limits** — the land is a **corridor flanked by open sea on both sides**: stray over the water and you ditch. Climb too high and you **lose cabin pressure** — the thin air bleeds your speed and pulls you down, so you can't just float above everything.
 5. **Don't crash** — clipping a building or a zone hazard (blimps, cranes, bird flocks) ends the run with a debris burst and a beat of slow-mo.
-6. **Collect & combo** — grab coins, refill at **fuel pickups**, chain **rings** for a coin-multiplier combo + speed kick, and ride **thermal updrafts** for altitude.
+6. **Thread the barriers** — walls span the whole corridor with a single **gap**; line up **both your altitude and your lateral position** to fly through, or you crash. Gaps sit high or low (so you must climb or dive to the right height), and on later levels the gap **drifts up and down** for a timing challenge. Threading one cleanly pays bonus combo + coins.
+7. **Collect & combo** — grab coins, refill at **fuel pickups**, chain **rings** for a coin-multiplier combo + speed kick, and ride **thermal updrafts** for altitude.
 
 ### Campaign & zones
 - A **12-level campaign** with a finale ("Cloud Nine") — beat it for a 🏆 **Campaign Complete**, then keep going in **Endless**.

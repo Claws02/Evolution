@@ -612,6 +612,62 @@ function placeObstacle(o) {
 }
 function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) placeObstacle(o); }
 
+// ---------- Barriers: walls across the corridor with a single gap you must thread ----------
+// You have to line up BOTH your altitude and your lateral position with the gap, or you crash.
+const WALL_HALF = CORRIDOR + 12, WALL_TOP = 200;   // walls reach above the cabin ceiling -> must use the gap
+const BARRIER_COUNT = 6;
+const barriers = [];
+function buildBarrier() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x7d8794, metalness: 0.3, roughness: 0.75 });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x49e0ff, emissive: 0x0c5066, emissiveIntensity: 0.7 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+  const bottom = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+  const left = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+  const right = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(1, 0.15, 6, 4), frameMat); // diamond hint around gap
+  frame.rotation.z = Math.PI / 4;
+  g.add(top, bottom, left, right, frame);
+  g.visible = false; scene.add(g);
+  g.userData = { top, bottom, left, right, frame };
+  return g;
+}
+for (let i = 0; i < BARRIER_COUNT; i++) {
+  barriers.push({ grp: buildBarrier(), z: 0, gx: 0, gw: 40, gyLo: 0, gyHi: 0, passed: false, active: false, move: 0, mphase: 0 });
+}
+let barFarZ = 0;
+function placeBarrier(b) {
+  const dense = 1 - Math.min(save.level, 6) * 0.05;
+  barFarZ += rand(360, 620) * dense;
+  if (barFarZ > curLevelLen - 120) { b.active = false; b.grp.visible = false; b.z = 1e7; return; }
+  b.z = barFarZ;
+  const gw = rand(38, 50), gh = rand(30, 40);
+  const gy = rand(gh / 2 + 12, Math.min(CEILING - 6, 110) - gh / 2);  // gap sits within the flyable band
+  const gx = clamp(laneX(b.z) + rand(-30, 30), -CORRIDOR + gw / 2 + 6, CORRIDOR - gw / 2 - 6);
+  b.gx = gx; b.gw = gw; b.gyLo = gy - gh / 2; b.gyHi = gy + gh / 2;
+  // moving gap on later levels (vertical drift) for a timing challenge
+  b.move = save.level >= 4 ? rand(6, 14) : 0; b.mphase = rand(0, TAU); b.baseGy = gy; b.gh = gh;
+  layoutBarrier(b);
+  b.active = true; b.passed = false; b.grp.visible = true;
+  b.grp.position.z = b.z;
+}
+function layoutBarrier(b) {
+  const u = b.grp.userData, D = 4;
+  const gyLo = b.gyLo, gyHi = b.gyHi, gxLo = b.gx - b.gw / 2, gxHi = b.gx + b.gw / 2;
+  // left panel (full height)
+  u.left.scale.set(gxLo + WALL_HALF, WALL_TOP, D); u.left.position.set((-WALL_HALF + gxLo) / 2, WALL_TOP / 2, 0);
+  // right panel
+  u.right.scale.set(WALL_HALF - gxHi, WALL_TOP, D); u.right.position.set((gxHi + WALL_HALF) / 2, WALL_TOP / 2, 0);
+  // bottom panel (under the gap)
+  u.bottom.scale.set(b.gw, gyLo, D); u.bottom.position.set(b.gx, gyLo / 2, 0);
+  // top panel (above the gap)
+  u.top.scale.set(b.gw, WALL_TOP - gyHi, D); u.top.position.set(b.gx, (gyHi + WALL_TOP) / 2, 0);
+  // gap frame hint
+  u.frame.scale.set(b.gw * 0.62, (gyHi - gyLo) * 0.62, 1);
+  u.frame.position.set(b.gx, (gyLo + gyHi) / 2, 0.3);
+}
+function resetBarriers() { barFarZ = 380; for (const b of barriers) placeBarrier(b); }
+
 // ---------- Levels (discrete zones; reach the FINISH to advance to the next level) ----------
 // Length ramps with level so early levels are beatable, while a maxed plane needs ~90s on the
 // longest ones (LEVEL_TIME * NOMINAL_CRUISE). Early levels are short to build momentum/retention.
@@ -824,6 +880,7 @@ function setupRun() {
   resetRings();
   resetThermals();
   resetObstacles();
+  resetBarriers();
   placeFinish();
   for (const p of parts) { p.active = false; p.m.visible = false; }
   for (const p of trail) { p.life = 0; p.m.visible = false; }
@@ -1068,6 +1125,25 @@ function updateFlight(dt) {
       if (Math.abs(along) < 24 && Math.abs(perp) < 2.5 && Math.abs(pos.y - o.armY) < 3) crash();
     }
     if (pos.z - o.z > 80) placeObstacle(o);
+  }
+
+  // barriers: walls with a gap — line up your height AND lateral position or crash
+  for (const b of barriers) {
+    if (b.active) {
+      if (b.move) {
+        const gy = b.baseGy + Math.sin(flightTime * 0.8 + b.mphase) * b.move;
+        b.gyLo = gy - b.gh / 2; b.gyHi = gy + b.gh / 2; layoutBarrier(b);
+      }
+      if (Math.abs(pos.z - b.z) < 3 + PH) {
+        const inGap = Math.abs(pos.x - b.gx) < b.gw / 2 - PH * 0.6 && pos.y > b.gyLo + PH * 0.6 && pos.y < b.gyHi - PH * 0.6;
+        if (!inGap) { crash(); }
+        else if (!b.passed) {
+          b.passed = true; comboMult = Math.min(comboMult + 0.8, 6); runCoins += Math.round(8 * comboMult);
+          spawnBurst(pos.x, pos.y, pos.z, 0x49e0ff, 14, 18); goalBanner("THREADED ×" + comboMult.toFixed(1)); Sound.ring(); haptic(18);
+        }
+      }
+    }
+    if (pos.z - b.z > 60) placeBarrier(b);
   }
 
   // FINISH — reaching the end of the level is the goal; it advances you to the next level
@@ -1570,6 +1646,7 @@ resetFuels();
 resetRings();
 resetThermals();
 resetObstacles();
+resetBarriers();
 placeFinish();
 updateShadow();
 checkDaily();
