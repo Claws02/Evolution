@@ -549,10 +549,11 @@ function placeThermal(t) {
 }
 function resetThermals() { thermalFarZ = 220; for (const t of thermals) placeThermal(t); }
 
-// ---------- Obstacles (blimps, cranes, bird flocks) — crashing hazards ----------
-const OBS_TYPES = ["blimp", "crane", "bird"];
+// ---------- Obstacles (blimps, cranes, birds, rising balloons, swinging pendulums) ----------
+const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum"];
 const obstacles = [];
-const OBS_COUNT = 9;
+const PEND_ARM = 24;
+const OBS_COUNT = 12;
 function buildObstacle(type) {
   const g = new THREE.Group();
   if (type === "blimp") {
@@ -569,6 +570,25 @@ function buildObstacle(type) {
     const arm = new THREE.Mesh(new THREE.BoxGeometry(46, 2, 2.4), yel); g.add(arm); g.userData.arm = arm;
     const cw = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 3), new THREE.MeshStandardMaterial({ color: 0x555a63 }));
     g.userData.cw = cw; g.add(cw);
+  } else if (type === "balloon") { // hot-air balloon that rises and falls
+    const env = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0xff6f6f, roughness: 0.5 }));
+    env.scale.set(5, 6, 5); env.position.y = 3; g.add(env);
+    const stripe = new THREE.Mesh(new THREE.SphereGeometry(1.02, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0xffd454, roughness: 0.5 }));
+    stripe.scale.set(5, 1.6, 5); stripe.position.y = 3; g.add(stripe);
+    const basket = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.2, 2.4),
+      new THREE.MeshStandardMaterial({ color: 0x6b4a2a })); basket.position.y = -3; g.add(basket);
+  } else if (type === "pendulum") { // wrecking ball swinging across the lane
+    const steel = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, metalness: 0.5, roughness: 0.5 });
+    const mount = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 4), steel); g.add(mount);
+    const armG = new THREE.Group();
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.8, PEND_ARM, 0.8), steel);
+    arm.position.y = -PEND_ARM / 2; armG.add(arm);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(3.4, 14, 12),
+      new THREE.MeshStandardMaterial({ color: 0x444a55, metalness: 0.4, roughness: 0.6 }));
+    ball.position.y = -PEND_ARM; armG.add(ball);
+    g.add(armG); g.userData.swing = armG;
   } else { // bird flock — a few V shapes
     const bm = new THREE.MeshStandardMaterial({ color: 0x2c2c38, roughness: 0.7 });
     for (let i = 0; i < 4; i++) {
@@ -604,6 +624,14 @@ function placeObstacle(o) {
   } else if (o.type === "blimp") {
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(35, 70); o.drift = rand(-6, 6);
     o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "balloon") {
+    o.x = laneX(o.z) + rand(-40, 40); o.baseY = gh + rand(34, 56);
+    o.amp = rand(14, 26); o.phase = rand(0, TAU); o.y = o.baseY;
+    o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "pendulum") {
+    o.x = laneX(o.z) + rand(-20, 20); o.pivotY = gh + PEND_ARM + rand(24, 40);
+    o.amp = rand(0.7, 1.05); o.phase = rand(0, TAU); o.swingSpd = rand(1.1, 1.8);
+    o.y = o.pivotY; o.grp.position.set(o.x, o.pivotY, o.z);
   } else { // bird
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
     o.grp.position.set(o.x, o.y, o.z);
@@ -617,6 +645,7 @@ function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) pl
 const WALL_HALF = CORRIDOR + 12, WALL_TOP = 200;   // walls reach above the cabin ceiling -> must use the gap
 const BARRIER_COUNT = 6;
 const barriers = [];
+const barrierCoinGeo = new THREE.TorusGeometry(1.4, 0.5, 8, 16);
 function buildBarrier() {
   const g = new THREE.Group();
   const mat = new THREE.MeshStandardMaterial({ color: 0x7d8794, metalness: 0.3, roughness: 0.75 });
@@ -627,30 +656,63 @@ function buildBarrier() {
   const right = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
   const frame = new THREE.Mesh(new THREE.TorusGeometry(1, 0.15, 6, 4), frameMat); // diamond hint around gap
   frame.rotation.z = Math.PI / 4;
+  // risk/reward: a little coin line sitting right in the gap
+  const gapCoins = [];
+  for (let i = 0; i < 3; i++) {
+    const c = new THREE.Mesh(barrierCoinGeo, coinMat); c.rotation.y = Math.PI / 2; gapCoins.push(c); g.add(c);
+  }
   g.add(top, bottom, left, right, frame);
   g.visible = false; scene.add(g);
-  g.userData = { top, bottom, left, right, frame };
+  g.userData = { mat, top, bottom, left, right, frame, gapCoins };
   return g;
 }
 for (let i = 0; i < BARRIER_COUNT; i++) {
-  barriers.push({ grp: buildBarrier(), z: 0, gx: 0, gw: 40, gyLo: 0, gyHi: 0, passed: false, active: false, move: 0, mphase: 0 });
+  barriers.push({ grp: buildBarrier(), kind: "wall", z: 0, gx: 0, gw: 40, gyLo: 0, gyHi: 0, gh: 36, baseGy: 60, passed: false, gotCoins: false, active: false, move: 0, mphase: 0 });
 }
-let barFarZ = 0;
+let barFarZ = 0, slalomLeft = 0, slalomHigh = false;
 function placeBarrier(b) {
   const dense = 1 - Math.min(save.level, 6) * 0.05;
-  barFarZ += rand(360, 620) * dense;
+  const topGy = Math.min(CEILING - 6, 112);
+  // chained slalom: a quick run of walls with alternating high/low gaps
+  if (slalomLeft > 0) {
+    barFarZ += rand(120, 170);
+    slalomLeft--;
+  } else {
+    barFarZ += rand(360, 620) * dense;
+    if (save.level >= 2 && curZone.gate !== "canyon" && Math.random() < 0.35) { slalomLeft = 1 + (Math.random() < 0.5 ? 1 : 2); slalomHigh = Math.random() < 0.5; }
+  }
   if (barFarZ > curLevelLen - 120) { b.active = false; b.grp.visible = false; b.z = 1e7; return; }
   b.z = barFarZ;
-  const gw = rand(38, 50), gh = rand(30, 40);
-  const gy = rand(gh / 2 + 12, Math.min(CEILING - 6, 110) - gh / 2);  // gap sits within the flyable band
-  const gx = clamp(laneX(b.z) + rand(-30, 30), -CORRIDOR + gw / 2 + 6, CORRIDOR - gw / 2 - 6);
-  b.gx = gx; b.gw = gw; b.gyLo = gy - gh / 2; b.gyHi = gy + gh / 2;
-  // moving gap on later levels (vertical drift) for a timing challenge
-  b.move = save.level >= 4 ? rand(6, 14) : 0; b.mphase = rand(0, TAU); b.baseGy = gy; b.gh = gh;
+
+  // choose kind from the zone (canyon = narrow full-height channel; wall = gap window)
+  let kind = curZone.gate || "wall";
+  if (kind === "mix") kind = Math.random() < 0.5 ? "wall" : "canyon";
+  if (slalomActive()) kind = "wall";   // slalom chains are always gap-walls
+  b.kind = kind;
+
+  if (kind === "canyon") {
+    const gw = rand(44, 60);
+    const gx = clamp(laneX(b.z) + rand(-46, 46), -CORRIDOR + gw / 2 + 6, CORRIDOR - gw / 2 - 6);
+    b.gx = gx; b.gw = gw; b.gyLo = 0; b.gyHi = WALL_TOP; b.gh = WALL_TOP; b.baseGy = 50; b.move = 0;
+    if (b.grp.userData.mat.color && b.grp.userData.mat.color.setHex) b.grp.userData.mat.color.setHex(0x6b5a44);
+  } else {
+    const gw = rand(38, 50), gh = rand(30, 40);
+    let gy;
+    if (slalomActive()) { gy = slalomHigh ? rand(72, topGy - gh / 2) : rand(gh / 2 + 12, 48); slalomHigh = !slalomHigh; }
+    else gy = rand(gh / 2 + 12, topGy - gh / 2);
+    const gx = clamp(laneX(b.z) + rand(-30, 30), -CORRIDOR + gw / 2 + 6, CORRIDOR - gw / 2 - 6);
+    b.gx = gx; b.gw = gw; b.gyLo = gy - gh / 2; b.gyHi = gy + gh / 2; b.gh = gh; b.baseGy = gy;
+    b.move = (save.level >= 4 && !slalomActive()) ? rand(6, 14) : 0; b.mphase = rand(0, TAU);
+    if (b.grp.userData.mat.color && b.grp.userData.mat.color.setHex) b.grp.userData.mat.color.setHex(0x7d8794);
+  }
   layoutBarrier(b);
-  b.active = true; b.passed = false; b.grp.visible = true;
-  b.grp.position.z = b.z;
+  // place the reward coins in the gap
+  const midY = (b.gyLo + Math.min(b.gyHi, b.gyLo + b.gh)) / 2 || b.baseGy;
+  b.grp.userData.gapCoins.forEach((c, i) => { c.visible = true; c.position.set(b.gx, b.kind === "canyon" ? 46 : midY, (i - 1) * 5); });
+  b.active = true; b.passed = false; b.gotCoins = false; b.grp.visible = true;
+  b.grp.position.set(0, 0, b.z);
 }
+function slalomActive() { return slalomLeft > 0; }
 function layoutBarrier(b) {
   const u = b.grp.userData, D = 4;
   const gyLo = b.gyLo, gyHi = b.gyHi, gxLo = b.gx - b.gw / 2, gxHi = b.gx + b.gw / 2;
@@ -662,11 +724,41 @@ function layoutBarrier(b) {
   u.bottom.scale.set(b.gw, gyLo, D); u.bottom.position.set(b.gx, gyLo / 2, 0);
   // top panel (above the gap)
   u.top.scale.set(b.gw, WALL_TOP - gyHi, D); u.top.position.set(b.gx, (gyHi + WALL_TOP) / 2, 0);
-  // gap frame hint
-  u.frame.scale.set(b.gw * 0.62, (gyHi - gyLo) * 0.62, 1);
-  u.frame.position.set(b.gx, (gyLo + gyHi) / 2, 0.3);
+  // gap frame hint (only for gap-walls; canyons read from the rock channel itself)
+  if (b.kind === "canyon") { u.frame.visible = false; }
+  else {
+    u.frame.visible = true;
+    u.frame.scale.set(b.gw * 0.62, (gyHi - gyLo) * 0.62, 1);
+    u.frame.position.set(b.gx, (gyLo + gyHi) / 2, 0.3);
+  }
 }
-function resetBarriers() { barFarZ = 380; for (const b of barriers) placeBarrier(b); }
+function resetBarriers() { barFarZ = 380; slalomLeft = 0; slalomHigh = false; for (const b of barriers) placeBarrier(b); }
+
+// ---------- Tunnels: a low overpass you must duck UNDER (the inverse of the cabin ceiling) ----------
+const TUN_COUNT = 3;
+const tunnels = [];
+function buildTunnel() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.25, roughness: 0.85 });
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffd454, emissive: 0x5a4300, emissiveIntensity: 0.5 });
+  const ceil = new THREE.Mesh(new THREE.BoxGeometry(WALL_HALF * 2, 10, 1), mat); g.add(ceil); g.userData.ceil = ceil;
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(WALL_HALF * 2, 1.4, 1.4), stripeMat); g.add(lip); g.userData.lip = lip; // height marker at the mouth
+  g.visible = false; scene.add(g);
+  return g;
+}
+for (let i = 0; i < TUN_COUNT; i++) tunnels.push({ grp: buildTunnel(), z: 0, len: 160, ceilY: 55, active: false, near: false });
+let tunFarZ = 0;
+function placeTunnel(t) {
+  if (!curZone.tunnel) { t.active = false; t.grp.visible = false; t.z = 1e7; return; }
+  tunFarZ += rand(520, 880);
+  if (tunFarZ > curLevelLen - 200) { t.active = false; t.grp.visible = false; t.z = 1e7; return; }
+  t.z = tunFarZ; t.len = rand(150, 240); t.ceilY = rand(40, 60);
+  const u = t.grp.userData;
+  u.ceil.scale.set(1, 1, t.len); u.ceil.position.set(0, t.ceilY + 5, 0);
+  u.lip.position.set(0, t.ceilY, -t.len / 2);
+  t.grp.position.set(0, 0, t.z); t.active = true; t.near = false; t.grp.visible = true;
+}
+function resetTunnels() { tunFarZ = 700; for (const t of tunnels) placeTunnel(t); }
 
 // ---------- Levels (discrete zones; reach the FINISH to advance to the next level) ----------
 // Length ramps with level so early levels are beatable, while a maxed plane needs ~90s on the
@@ -680,13 +772,13 @@ function levelLength(n) {
 }
 let curLevelLen = 2200;
 const LEVELS = [
-  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "blimp"] },
-  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "blimp"] },
-  { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050, obs: ["crane", "bird"] },
-  { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150, obs: ["bird", "crane"] },
-  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300, obs: ["bird"] },
-  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird"] },
-  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "crane"] },
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum"],      gate: "wall",   tunnel: false },
+  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon"],       gate: "wall",   tunnel: false },
+  { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050, obs: ["crane", "bird"],         gate: "canyon", tunnel: false },
+  { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150, obs: ["bird", "balloon"],       gate: "canyon", tunnel: false },
+  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon"],       gate: "mix",    tunnel: false },
+  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird"],         gate: "wall",   tunnel: true  },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "crane", "pendulum"], gate: "mix",    tunnel: false },
 ];
 // Curated campaign: a finite arc of 12 named levels with a finale, then endless beyond it.
 const CAMPAIGN = [
@@ -881,6 +973,7 @@ function setupRun() {
   resetThermals();
   resetObstacles();
   resetBarriers();
+  resetTunnels();
   placeFinish();
   for (const p of parts) { p.active = false; p.m.visible = false; }
   for (const p of trail) { p.life = 0; p.m.visible = false; }
@@ -1115,6 +1208,22 @@ function updateFlight(dt) {
       const e = dx * dx + dy * dy + dz * dz;
       if (e < 16) { crash(); }
       else if (!o.near && e < 64) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "balloon") { // rises and falls — time your altitude
+      const by = o.baseY + Math.sin(flightTime * 0.7 + o.phase) * o.amp;
+      o.grp.position.set(o.x, by, o.z);
+      const cy = by + 3; // envelope centre
+      const dx = (pos.x - o.x) / 5.5, dy = (pos.y - cy) / 6.5, dz = (pos.z - o.z) / 5.5;
+      const e = dx * dx + dy * dy + dz * dz;
+      if (e < 1) { crash(); }
+      else if (!o.near && e < 2.2) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "pendulum") { // wrecking ball swings across the lane
+      const th = Math.sin(flightTime * o.swingSpd + o.phase) * o.amp;
+      if (o.grp.userData.swing) o.grp.userData.swing.rotation.z = th;
+      const bx = o.x + Math.sin(th) * PEND_ARM, by = o.pivotY - Math.cos(th) * PEND_ARM;
+      const dx = pos.x - bx, dy = pos.y - by, dz = pos.z - o.z;
+      const e = dx * dx + dy * dy + dz * dz;
+      if (e < (3.4 + PH) * (3.4 + PH)) { crash(); }
+      else if (!o.near && e < 90) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
     } else { // crane — vertical mast + horizontal jib
       const ca = Math.cos(o.armRot), sa = Math.sin(o.armRot);
       // mast collision
@@ -1127,23 +1236,48 @@ function updateFlight(dt) {
     if (pos.z - o.z > 80) placeObstacle(o);
   }
 
-  // barriers: walls with a gap — line up your height AND lateral position or crash
+  // barriers: walls with a gap (or canyon channels) — line up height AND lateral position or crash
   for (const b of barriers) {
     if (b.active) {
+      const gc = b.grp.userData.gapCoins;
       if (b.move) {
         const gy = b.baseGy + Math.sin(flightTime * 0.8 + b.mphase) * b.move;
         b.gyLo = gy - b.gh / 2; b.gyHi = gy + b.gh / 2; layoutBarrier(b);
+        gc.forEach(c => { if (c.visible) c.position.y = gy; });
+      }
+      for (const c of gc) if (c.visible) c.rotation.z += dt * 3;
+      // collect the gap coins (sit them right on the risky line)
+      if (!b.gotCoins && Math.abs(pos.z - b.z) < 8) {
+        const midY = b.kind === "canyon" ? 46 : (b.gyLo + b.gyHi) / 2;
+        if (Math.abs(pos.x - b.gx) < 6 && Math.abs(pos.y - midY) < 8) {
+          b.gotCoins = true; gc.forEach(c => c.visible = false);
+          const val = Math.round((1 + lvl("mult") * 0.5) * comboMult * perkCoin()) * 3;
+          runCoins += val; runCoinPickups += 3; spawnBurst(pos.x, pos.y, pos.z, 0xffd454, 6, 12); Sound.coin();
+        }
       }
       if (Math.abs(pos.z - b.z) < 3 + PH) {
         const inGap = Math.abs(pos.x - b.gx) < b.gw / 2 - PH * 0.6 && pos.y > b.gyLo + PH * 0.6 && pos.y < b.gyHi - PH * 0.6;
         if (!inGap) { crash(); }
         else if (!b.passed) {
-          b.passed = true; comboMult = Math.min(comboMult + 0.8, 6); runCoins += Math.round(8 * comboMult);
-          spawnBurst(pos.x, pos.y, pos.z, 0x49e0ff, 14, 18); goalBanner("THREADED ×" + comboMult.toFixed(1)); Sound.ring(); haptic(18);
+          b.passed = true;
+          const tight = b.kind === "canyon" ? 1 : clamp(1.6 - b.gw / 50, 0.4, 1.4); // tighter gap = bigger reward
+          comboMult = Math.min(comboMult + 0.6 + tight * 0.4, 6);
+          runCoins += Math.round(8 * comboMult * (1 + tight));
+          spawnBurst(pos.x, pos.y, pos.z, 0x49e0ff, 14, 18);
+          goalBanner((b.kind === "canyon" ? "CANYON RUN ×" : "THREADED ×") + comboMult.toFixed(1)); Sound.ring(); haptic(18);
         }
       }
     }
     if (pos.z - b.z > 60) placeBarrier(b);
+  }
+
+  // tunnels: an overpass you must stay UNDER — fly too high inside it and you smack the ceiling
+  for (const t of tunnels) {
+    if (t.active && Math.abs(pos.z - t.z) < t.len / 2 + PH) {
+      if (pos.y > t.ceilY - PH * 0.6) crash();
+      else if (!t.near && pos.y > t.ceilY - 12) { t.near = true; styleHit(pos.x, pos.y, pos.z); }
+    }
+    if (pos.z - t.z > 80) placeTunnel(t);
   }
 
   // FINISH — reaching the end of the level is the goal; it advances you to the next level
@@ -1647,6 +1781,7 @@ resetRings();
 resetThermals();
 resetObstacles();
 resetBarriers();
+resetTunnels();
 placeFinish();
 updateShadow();
 checkDaily();
