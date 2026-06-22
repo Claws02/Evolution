@@ -843,14 +843,14 @@ function forwardVec(out) {
 
 // ---------- Launch ----------
 const PERFECT_LO = 0.78, PERFECT_HI = 0.92;   // release in this power band for a perfect launch
-function launch(power, launchPitch) {
+function launch(power, launchPitch, launchYaw) {
   // Launch Power dominates the initial speed; a fresh plane is slow off the ramp.
   const maxSpeed = 56 + lvl("power") * 18 + save.tier * 6;
   let speed = lerp(32, maxSpeed, power);
   const perfect = power >= PERFECT_LO && power <= PERFECT_HI;
   if (perfect) { speed *= 1.18; boostFuel = Math.min(boostMax, boostFuel + 0.4); goalBanner("✦ PERFECT LAUNCH"); Sound.ring(); haptic(25); }
   if (runPerk === "start") { speed *= 1.35; boostFuel = boostMax; }   // Head Start perk
-  pitch = launchPitch; yaw = 0;
+  pitch = launchPitch; yaw = launchYaw || 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
   // catapult fling: band recoil, smoke + sparks off the rig, and a kick of camera shake
@@ -1147,16 +1147,15 @@ function updateChaseCamera(dt, f) {
 
 // ---------- Aim camera / preview ----------
 function updateAim(dt) {
-  // a more side-on view so the launch angle reads clearly while you aim
-  fh.set(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
-  camGoal.copy(pos).addScaledVector(fh, -15); camGoal.x += 9; camGoal.y += 5;
+  // behind-and-above view so both the up/down angle AND the left/right aim read clearly
+  camGoal.set(0, pos.y + 7, pos.z - 17);
   camera.position.lerp(camGoal, Math.min(1, dt * 3));
-  camLook.copy(pos); camLook.y += 3; camLook.z += 10;
+  camLook.set(0, pos.y + 3, pos.z + 12);
   camera.lookAt(camLook);
-  // point the plane where it will launch, and pull it back into the sling by power
-  const av = (touch.down) ? aimValues() : { power: 0, lp: 0.6 };
-  plane.rotation.set(-av.lp, 0, 0);
-  plane.position.set(pos.x, pos.y - av.power * 1.2, pos.z - av.power * 4.5);
+  // point the plane where it will launch (pitch + yaw), and pull it back into the sling by power
+  const av = (touch.down) ? aimValues() : { power: 0, lp: 0.6, ly: 0 };
+  plane.rotation.set(-av.lp, av.ly, 0);
+  plane.position.set(pos.x, pos.y - av.power * 1.0, pos.z - av.power * 4.5);
   updateLauncher(dt, av.power);
   updateShadow();
   spinCoins(dt);
@@ -1268,30 +1267,31 @@ function onMove(e) {
 }
 function onUp() {
   if (state === "aim" && touch.down) {
-    const { power, lp } = aimValues();
-    if (power > 0.06) launch(power, lp);
-    else aimHintEl.textContent = "Drag back & release to launch";
+    const { power, lp, ly } = aimValues();
+    if (power > 0.06) launch(power, lp, ly);
+    else aimHintEl.textContent = "Drag toward where you want to launch";
   }
   touch.down = false;
 }
 function aimValues() {
-  const dx = touch.x - touch.startX, dy = touch.y - touch.startY; // drag down/back to pull
+  // DIRECT AIM: drag toward where you want to fire. Up on screen = climb, sideways = veer,
+  // drag length = power. Returns launch pitch (lp) and launch yaw (ly).
+  const dx = touch.x - touch.startX, dy = touch.y - touch.startY;
+  const maxDrag = Math.min(window.innerWidth, window.innerHeight) * 0.36;
   const len = Math.hypot(dx, dy);
-  const maxDrag = window.innerHeight * 0.4;
   const power = clamp(len / maxDrag, 0, 1);
-  // launch ANGLE comes from the drag DIRECTION: a steep (straight-down) pull launches steep,
-  // a shallow (more sideways) pull launches flat. vert = how vertical the drag is (0..1).
-  const vert = len > 6 ? clamp(dy / len, 0, 1) : 0.6;
-  const lp = lerp(0.24, 1.2, vert);          // ~14° (flat) .. ~69° (steep)
-  return { power, lp };
+  const up = clamp(-dy / maxDrag, 0, 1);            // how far you dragged upward
+  const lp = lerp(0.18, 1.2, up);                   // launch pitch: flat .. steep
+  const ly = clamp(dx / maxDrag, -1, 1) * 0.5;      // launch yaw: drag right -> veer right (±~29°)
+  return { power, lp, ly };
 }
 function predictArc() {
-  const { power, lp } = aimValues();
+  const { power, lp, ly } = aimValues();
   const maxSpeed = 56 + lvl("power") * 18 + save.tier * 6;
   let speed = lerp(32, maxSpeed, power);
   if (power >= PERFECT_LO && power <= PERFECT_HI) speed *= 1.18;
   let px = pos.x, py = pos.y, pz = pos.z;
-  let vx = 0, vy = Math.sin(lp) * speed, vz = Math.cos(lp) * speed;
+  let vx = Math.sin(ly) * Math.cos(lp) * speed, vy = Math.sin(lp) * speed, vz = Math.cos(ly) * Math.cos(lp) * speed;
   const h = 0.06;
   for (let i = 0; i < ARC_COUNT; i++) {
     for (let s = 0; s < 5; s++) { vy -= G * h; px += vx * h; py += vy * h; pz += vz * h; }
@@ -1474,8 +1474,8 @@ function goAim() {
   hideFlightControls();
   fuelWrap.style.display = "block";          // reused as the launch power meter
   fuelFill.style.width = "0%";
-  fuelLabel.textContent = "DRAG BACK & RELEASE TO LAUNCH";
-  aimHintEl.textContent = "Drag back & release to launch ✈";
+  fuelLabel.textContent = "DRAG TO AIM · RELEASE TO LAUNCH";
+  aimHintEl.textContent = "Drag toward where you want to launch ✈";
 }
 
 document.getElementById("playBtn").addEventListener("click", goHangar);

@@ -177,10 +177,10 @@ fire("launchBtn", "click");
 try { frames(10); assert(true, "aim-state frames render without error"); }
 catch (e) { assert(false, "aim frames threw: " + e.message); }
 
-// 4) Slingshot: touch down at center, drag down to build power, release
-touch("touchstart", 195, 422);
-touch("touchmove", 195, 700);    // drag down ~278px
-touch("touchend", 195, 700);
+// 4) Direct aim: drag UP (toward where you want to fire) with a slight rightward veer, release
+touch("touchstart", 195, 560);
+touch("touchmove", 220, 300);    // up + slightly right
+touch("touchend", 220, 300);
 assert(true, "launch input processed (no throw)");
 
 // helpers for the new dynamic canvas controls (right half = joystick, left half = boost)
