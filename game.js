@@ -119,6 +119,9 @@ function loadSave() {
   save.coins = save.coins || 0;
   save.best = save.best || 0;
   save.level = save.level || 0;
+  save.won = save.won || false;
+  save.stars = (save.stars && typeof save.stars === "object") ? save.stars : {};
+  save.perk = save.perk || "none";
   save.up = save.up || {};
   for (const u of UPGRADES) save.up[u.key] = save.up[u.key] || 0;
   if (!Array.isArray(save.missions) || save.missions.length < 3) save.missions = [makeMission(), makeMission(), makeMission()];
@@ -407,7 +410,7 @@ function placeBuilding(b) {
   const p = nextPlacement();
   if (!p) { b.active = false; b.grp.visible = false; b.z = 1e7; return; }
   const gh = terrainH(p.x, p.z);
-  b.x = p.x; b.z = p.z; b.w = p.w; b.d = p.d; b.topY = gh + p.h; b.active = true;
+  b.x = p.x; b.z = p.z; b.w = p.w; b.d = p.d; b.topY = gh + p.h; b.active = true; b.near = false;
   b.body.scale.set(p.w, p.h, p.d); b.body.position.y = p.h / 2;
   const rh = rand(1.5, 4.5);
   b.roof.scale.set(p.w * 1.05, rh, p.d * 1.05); b.roof.position.y = p.h + rh / 2;
@@ -574,7 +577,7 @@ function placeObstacle(o) {
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
     o.grp.position.set(o.x, o.y, o.z);
   }
-  o.active = true; o.grp.visible = true;
+  o.active = true; o.near = false; o.grp.visible = true;
 }
 function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) placeObstacle(o); }
 
@@ -584,8 +587,11 @@ function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) pl
 const LEVEL_TIME = 90;            // target seconds for a maxed plane to clear a full-length level
 const NOMINAL_CRUISE = 100;       // approx forward speed (units/s) a maxed plane sustains
 const LEVEL_LEN = LEVEL_TIME * NOMINAL_CRUISE; // = 9000, the cap a level length ramps toward
-function levelLength(n) { return Math.round(Math.min(LEVEL_LEN, 2500 + n * 1100)); }
-let curLevelLen = 2500;
+function levelLength(n) {
+  if (typeof CAMPAIGN !== "undefined" && n < CAMPAIGN_LEN) return CAMPAIGN[n].len;
+  return Math.round(Math.min(LEVEL_LEN + 1500, 7000 + n * 400)); // endless gets longer
+}
+let curLevelLen = 2200;
 const LEVELS = [
   { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "blimp"] },
   { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "blimp"] },
@@ -595,7 +601,27 @@ const LEVELS = [
   { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird"] },
   { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "crane"] },
 ];
-function zoneForLevel(n) { return n <= 0 ? LEVELS[0] : LEVELS[1 + ((n - 1) % (LEVELS.length - 1))]; }
+// Curated campaign: a finite arc of 12 named levels with a finale, then endless beyond it.
+const CAMPAIGN = [
+  { zone: 0, len: 2200, name: "Downtown Dash" },
+  { zone: 1, len: 2500, name: "Sea Breeze" },
+  { zone: 4, len: 2800, name: "Green Mile" },
+  { zone: 3, len: 3100, name: "Mesa Run" },
+  { zone: 2, len: 3500, name: "High Country" },
+  { zone: 6, len: 3800, name: "Skyline" },
+  { zone: 5, len: 4200, name: "Cold Snap" },
+  { zone: 1, len: 4700, name: "Long Shore" },
+  { zone: 3, len: 5300, name: "Canyon Gauntlet" },
+  { zone: 2, len: 6000, name: "The Ridge" },
+  { zone: 0, len: 7000, name: "Metro Marathon" },
+  { zone: 6, len: 9000, name: "FINALE: Cloud Nine" },
+];
+const CAMPAIGN_LEN = CAMPAIGN.length;
+function zoneForLevel(n) {
+  if (n < CAMPAIGN_LEN) return LEVELS[CAMPAIGN[n].zone];
+  return LEVELS[1 + (n % (LEVELS.length - 1))]; // endless: cycle the non-city zones
+}
+function levelName(n) { return n < CAMPAIGN_LEN ? CAMPAIGN[n].name : "Endless " + (n - CAMPAIGN_LEN + 1); }
 let curZone = LEVELS[0];
 function setColorHex(target, hex) { if (target && target.setHex) target.setHex(hex); }
 function applyZone(z) {
@@ -608,7 +634,11 @@ function applyZone(z) {
 }
 function announceLevel() {
   const el = document.getElementById("levelName");
-  if (el) { el.textContent = "LEVEL " + (save.level + 1) + " · " + curZone.name; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600); }
+  if (el) {
+    const prog = save.level < CAMPAIGN_LEN ? "LEVEL " + (save.level + 1) + "/" + CAMPAIGN_LEN : "ENDLESS";
+    el.textContent = prog + " · " + levelName(save.level);
+    el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600);
+  }
 }
 
 // ---------- Finish gate (the single goal: the end of the level) ----------
@@ -728,7 +758,20 @@ let yaw = 0, pitch = 0, roll = 0;
 let boostFuel = 0, boostMax = 0, boosting = false;
 let runCoins = 0, lowSpeedT = 0, pendingEvoName = null, titleT = 0, shakeT = 0;
 let comboMult = 1, ringsPassed = 0, runCoinPickups = 0, crashT = 0, prevZ = 0, levelCleared = false;
+let flightTime = 0;        // time spent flying this run (for star ratings)
 const PLANE_GROUND = 1.6;
+
+// ---------- Loadout perks (pick one per run) ----------
+const PERKS = [
+  { key: "none",  ico: "🛩", name: "Standard" },
+  { key: "fuel",  ico: "⛽", name: "Full Tanks" },   // +50% boost fuel
+  { key: "coins", ico: "💰", name: "Coin Rush" },    // coins worth ×2
+  { key: "start", ico: "🚀", name: "Head Start" },   // faster launch + topped fuel
+  { key: "lift",  ico: "🪁", name: "Updraft" },      // extra lift all run
+];
+let runPerk = "none";
+function perkLift() { return runPerk === "lift" ? 0.02 : 0; }
+function perkCoin() { return runPerk === "coins" ? 2 : 1; }
 
 function setupRun() {
   applyZone(zoneForLevel(save.level));   // this level's theme (sets terrain amplitude + colors)
@@ -737,10 +780,12 @@ function setupRun() {
   yaw = 0; pitch = 0; roll = 0;
   pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
   vel.set(0, 0, 0);
-  boostMax = 1.1 + lvl("fuel") * 0.5;
+  runPerk = save.perk || "none";
+  boostMax = (1.1 + lvl("fuel") * 0.5) * (runPerk === "fuel" ? 1.5 : 1);
   boostFuel = boostMax;
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
   comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z; levelCleared = false;
+  flightTime = 0;
   terrainSnapZ = NaN;                    // force terrain rebuild for the new zone amplitude
   resetCoins();
   resetCity();
@@ -773,6 +818,7 @@ function launch(power, launchPitch) {
   let speed = lerp(32, maxSpeed, power);
   const perfect = power >= PERFECT_LO && power <= PERFECT_HI;
   if (perfect) { speed *= 1.18; boostFuel = Math.min(boostMax, boostFuel + 0.4); goalBanner("✦ PERFECT LAUNCH"); Sound.ring(); haptic(25); }
+  if (runPerk === "start") { speed *= 1.35; boostFuel = boostMax; }   // Head Start perk
   pitch = launchPitch; yaw = 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
@@ -801,6 +847,8 @@ function updateFlight(dt) {
     yawRate = -joy.x * 1.2 * sens;                              // stick right = bank right on screen
   }
   boosting = boostHeld && boostFuel > 0 && hasBoost();
+  flightTime += dt;
+  comboMult = Math.max(1, comboMult - 0.22 * dt);  // style combo decays unless you keep it up
 
   pitch += (targetPitch - pitch) * Math.min(1, dt * 4);
   yaw += yawRate * dt;
@@ -826,7 +874,7 @@ function updateFlight(dt) {
 
   // lift: horizontal speed sustains altitude. Weak by default — Wings upgrades matter a lot.
   const speedH = Math.hypot(vel.x, vel.z);
-  const lift = clamp(speedH * (0.014 + lvl("wings") * 0.026), 0, G * 0.9);
+  const lift = clamp(speedH * (0.014 + lvl("wings") * 0.026 + perkLift()), 0, G * 0.95);
   vel.y += lift * dt;
 
   // cabin pressure: climb too high and the thin air bleeds your speed and drags you down
@@ -877,9 +925,9 @@ function updateFlight(dt) {
   plane.position.copy(pos);
   plane.rotation.set(-pitch, yaw, roll);
 
-  // coin value scales with the Coin Multiplier upgrade and the current ring combo
-  const coinValue = Math.round((1 + lvl("mult") * 0.5) * comboMult);
-  const magnetR = 9 + lvl("magnet") * 11;
+  // coin value scales with the Coin Multiplier upgrade, the ring/style combo, and the Coin Rush perk
+  const coinValue = Math.max(1, Math.round((1 + lvl("mult") * 0.5) * comboMult * perkCoin()));
+  const magnetR = (9 + lvl("magnet") * 11) * (runPerk === "coins" ? 1.4 : 1);
   for (const c of coins) {
     if (!c.got) {
       const dx = c.x - pos.x, dy = c.y - pos.y, dz = c.z - pos.z;
@@ -942,13 +990,18 @@ function updateFlight(dt) {
     if (pos.z - t.z > 80) placeThermal(t);
   }
 
-  // buildings: hitting one is a CRASH (ends the run) — weave through the gaps
-  const PH = 2.6;
+  // buildings: hitting one is a CRASH (ends the run) — weave through the gaps; skim for style
+  const PH = 2.6, NEAR = 9;
   for (const b of buildings) {
-    if (b.active &&
-        Math.abs(pos.x - b.x) < b.w / 2 + PH &&
-        Math.abs(pos.z - b.z) < b.d / 2 + PH &&
-        pos.y < b.topY + PH) { crash(); break; }
+    if (b.active) {
+      const inZ = Math.abs(pos.z - b.z) < b.d / 2 + PH;
+      const colX = Math.abs(pos.x - b.x) < b.w / 2 + PH;
+      const below = pos.y < b.topY + PH;
+      if (inZ && colX && below) { crash(); break; }
+      if (!b.near && below && Math.abs(pos.z - b.z) < b.d / 2 + 3 && !colX && Math.abs(pos.x - b.x) < b.w / 2 + NEAR) {
+        b.near = true; styleHit(pos.x, pos.y, pos.z);
+      }
+    }
     if (pos.z - b.z > 60) placeBuilding(b);
   }
 
@@ -959,12 +1012,16 @@ function updateFlight(dt) {
     if (o.type === "blimp") {
       o.x += o.drift * dt; o.grp.position.x = o.x; o.grp.position.y = o.y + Math.sin(o.t) * 1.2;
       const dx = (pos.x - o.x) / 9, dy = (pos.y - o.grp.position.y) / 4.5, dz = (pos.z - o.z) / 5;
-      if (dx * dx + dy * dy + dz * dz < 1) { crash(); }
+      const e = dx * dx + dy * dy + dz * dz;
+      if (e < 1) { crash(); }
+      else if (!o.near && e < 2.0) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
     } else if (o.type === "bird") {
       o.x += o.drift * dt; o.z -= 18 * dt; // fly toward the player
       o.grp.position.set(o.x, o.y + Math.sin(o.t * 4) * 1.5, o.z);
       const dx = pos.x - o.x, dy = pos.y - o.grp.position.y, dz = pos.z - o.z;
-      if (dx * dx + dy * dy + dz * dz < 16) { crash(); }
+      const e = dx * dx + dy * dy + dz * dz;
+      if (e < 16) { crash(); }
+      else if (!o.near && e < 64) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
     } else { // crane — vertical mast + horizontal jib
       const ca = Math.cos(o.armRot), sa = Math.sin(o.armRot);
       // mast collision
@@ -1011,6 +1068,14 @@ function crash() {
   spawnBurst(pos.x, pos.y, pos.z, 0x6a6a6a, 16, 18);
   vel.multiplyScalar(0.3); vel.y += 6;
   Sound.crash(); haptic([40, 30, 70]);
+}
+// near-miss / style: skim a hazard for a combo boost + coins
+function styleHit(x, y, z) {
+  comboMult = Math.min(comboMult + 0.4, 6);
+  runCoins += Math.round(3 * comboMult);
+  spawnBurst(x, y, z, 0xffffff, 4, 9, 0.5);
+  goalBanner("NEAR MISS ×" + comboMult.toFixed(1));
+  Sound.coin(); haptic(8);
 }
 function updateCrash(dt) {
   crashT -= dt;
@@ -1064,32 +1129,54 @@ function updateTitle(dt) {
 function spinCoins(dt) { for (const c of coins) if (!c.got) c.mesh.rotation.z += dt * 2; }
 
 // ---------- End run ----------
+// Star rating for a cleared level: ★ finish, ★ under par time, ★ caught enough rings.
+function parTime(len) { return len / NOMINAL_CRUISE * 1.5; }
+function ringGoal(len) { return Math.max(3, Math.floor(len / 600)); }
+function rateStars(len, time, rings) {
+  let s = 1;
+  if (time <= parTime(len)) s++;
+  if (rings >= ringGoal(len)) s++;
+  return s;
+}
+function totalStars() { let t = 0; for (const k in save.stars) t += save.stars[k]; return t; }
 function endRun() {
   state = "result";
+  const lvlIdx = save.level;                          // index of the level just played
   const meters = Math.max(0, Math.floor(Math.min(pos.z, curLevelLen)));
-  const completedLevel = save.level + 1;            // for display, before advancing
-  let earned = runCoins + Math.floor(meters / 8);   // tighter economy: less per metre
-  let completeBonus = 0;
-  if (levelCleared) { completeBonus = 200 + save.level * 60; earned += completeBonus; }
+  const completedLevel = save.level + 1;             // for display, before advancing
+  let earned = runCoins + Math.floor(meters / 8);    // tighter economy: less per metre
+  if (levelCleared) earned += 200 + save.level * 60; // level-clear bonus
   save.coins += earned;
   if (meters > save.best) save.best = meters;
-  const prevTier = save.tier;
-  if (levelCleared) save.level += 1;                // advance to the next level
-  save.tier = computeTier();
-  if (save.tier > prevTier) { pendingEvoName = TIERS[save.tier].name; Sound.evolve(); }
+
+  let stars = 0, justWon = false;
+  if (levelCleared) {
+    stars = rateStars(curLevelLen, flightTime, ringsPassed);
+    save.stars[lvlIdx] = Math.max(save.stars[lvlIdx] || 0, stars);
+    const prevTier = save.tier;
+    save.level += 1;                                  // advance to the next level
+    save.tier = computeTier();
+    if (save.tier > prevTier) { pendingEvoName = TIERS[save.tier].name; Sound.evolve(); }
+    if (completedLevel === CAMPAIGN_LEN && !save.won) { save.won = true; justWon = true; }
+  }
   const missionReward = evalMissions({ dist: meters, coins: runCoinPickups, rings: ringsPassed });
   persist();
+
   const resTitle = document.getElementById("resultTitle");
-  if (resTitle) resTitle.textContent = levelCleared ? "LEVEL " + completedLevel + " COMPLETE!" : "DITCHED!";
+  if (resTitle) resTitle.textContent = justWon ? "🏆 CAMPAIGN COMPLETE!" : (levelCleared ? "LEVEL " + completedLevel + " COMPLETE!" : "DITCHED!");
   document.getElementById("runDist").textContent = meters;
   document.getElementById("runCoins").textContent = earned;
   document.getElementById("runBest").textContent = save.best;
+  const starEl = document.getElementById("resultStars");
+  if (starEl) {
+    if (levelCleared) { starEl.classList.remove("hidden"); starEl.textContent = "★★★☆☆☆".slice(3 - stars, 6 - stars); }
+    else starEl.classList.add("hidden");
+  }
   const notice = document.getElementById("evoNotice");
   if (pendingEvoName) { notice.classList.remove("hidden"); document.getElementById("evoNoticeName").textContent = pendingEvoName; }
   else notice.classList.add("hidden");
   const mEl = document.getElementById("missionResult");
   if (mEl) { if (missionReward > 0) { mEl.classList.remove("hidden"); mEl.textContent = "🎯 Mission complete +" + missionReward + " coins!"; } else mEl.classList.add("hidden"); }
-  // the launch button continues to the (possibly new) current level
   const again = document.getElementById("againBtn");
   if (again) again.textContent = levelCleared ? "NEXT LEVEL ✈" : "RETRY ✈";
   hud.classList.add("hidden");
@@ -1302,6 +1389,9 @@ function renderShop() {
   document.getElementById("evoTier").textContent = save.tier + 1;
   document.getElementById("evoName").textContent = TIERS[save.tier].name;
   document.getElementById("bestHangar").textContent = save.best;
+  const sc = document.getElementById("starCount"); if (sc) sc.textContent = totalStars();
+  const nl = document.getElementById("nextLevel");
+  if (nl) nl.textContent = (save.level < CAMPAIGN_LEN ? "NEXT · LEVEL " + (save.level + 1) + "/" + CAMPAIGN_LEN : "ENDLESS") + " · " + levelName(save.level);
 }
 function buyUpgrade(u) {
   Sound.resume();
@@ -1318,7 +1408,17 @@ function renderMissions() {
     `<div class="mRow"><span>${missionText(m)}</span><span class="mRew"><span class="coin"></span>${m.reward}</span></div>`
   ).join("");
 }
-function goHangar() { renderShop(); renderMissions(); showOverlay("hangar"); state = "hangar"; }
+function renderPerks() {
+  const el = document.getElementById("perks");
+  if (!el) return;
+  el.innerHTML = `<div class="mTitle">🎒 LOADOUT (pick one)</div><div class="perkRow">` +
+    PERKS.map(p => `<button class="perk ${save.perk === p.key ? "on" : ""}" data-k="${p.key}"><span>${p.ico}</span>${p.name}</button>`).join("") +
+    `</div>`;
+  el.querySelectorAll(".perk").forEach(btn => btn.addEventListener("click", () => {
+    save.perk = btn.getAttribute("data-k"); persist(); renderPerks();
+  }));
+}
+function goHangar() { renderShop(); renderMissions(); renderPerks(); showOverlay("hangar"); state = "hangar"; }
 function goAim() {
   setupRun();
   state = "aim";

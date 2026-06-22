@@ -96,6 +96,8 @@ function mockEl(id) {
     addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); },
     _fire(t, ev) { (listeners[t] || []).forEach(fn => fn(ev || { preventDefault() {} })); },
     querySelector() { return mockEl(id + "::child"); },
+    querySelectorAll() { return []; },
+    getAttribute() { return null; },
     appendChild(c) { this.children.push(c); }, getContext() { return mockCtx(); },
     getBoundingClientRect() {
       if (id === "joy") return { left: 240, top: 640, width: 138, height: 138, right: 378, bottom: 778 };
@@ -166,6 +168,8 @@ fire("playBtn", "click");
 assert(!document.getElementById("hangarScreen").classList.contains("hidden"), "hangar screen visible after Play");
 assert(document.getElementById("shop").children.length === 7, "hangar shop rendered 7 upgrade rows");
 assert(document.getElementById("missions")._html.indexOf("MISSIONS") >= 0, "missions panel rendered in hangar");
+assert(document.getElementById("perks")._html.indexOf("LOADOUT") >= 0, "perk loadout rendered in hangar");
+assert(document.getElementById("nextLevel")._text.indexOf("LEVEL 1/") >= 0, "next-level/campaign progress shown");
 assert(document.getElementById("evoName")._text.length > 0, "evolution name shown in hangar: " + document.getElementById("evoName")._text);
 
 // 3) Launch -> aim

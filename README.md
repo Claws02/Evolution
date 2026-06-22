@@ -11,9 +11,17 @@ A **3D** browser slingshot launch-and-fly distance game, built to play on an iPh
 5. **Don't crash** — clipping a building or a zone hazard (blimps, cranes, bird flocks) ends the run with a debris burst and a beat of slow-mo.
 6. **Collect & combo** — grab coins, refill at **fuel pickups**, chain **rings** for a coin-multiplier combo + speed kick, and ride **thermal updrafts** for altitude.
 
-### Levels & zones
-- Levels are discrete and get **longer as you progress** (early ones are short to get you going; a fully-upgraded plane needs ~90 seconds to fly a full-length level straight).
+### Campaign & zones
+- A **12-level campaign** with a finale ("Cloud Nine") — beat it for a 🏆 **Campaign Complete**, then keep going in **Endless**.
+- Levels get **longer as you progress** (early ones are short to get you going; a fully-upgraded plane needs ~90 s on the longest).
 - Each level is a themed zone with its own sky, ground, terrain shape, and **hazard mix**: Metropolis, Coastline, Highlands, Sunset Mesa, Meadows, Glacier, Sky City.
+- **Star ratings** per level: ★ finish · ★ beat par time · ★ catch enough rings. Your best stars are saved and totalled on the title/hangar.
+
+### Loadout perks (pick one per run)
+In the hangar choose a perk for the next run: **Full Tanks** (+50% boost fuel), **Coin Rush** (coins ×2 + wider magnet), **Head Start** (faster launch + full fuel), or **Updraft** (extra lift all run).
+
+### Style / combo scoring
+Chain **rings** and **skim hazards** for near-misses to build a coin-multiplier combo (shown as `×N`). The combo decays if you play it safe, so flying stylishly — not just far — pays off.
 
 ### Progression
 - **Coins** buy upgrades: Launch Power, Boost Thrust, Fuel Tank, Aerodynamics, Wings & Lift, **Coin Magnet**, and **Coin Multiplier**. Coins are scarce on purpose — upgrades are an investment.
