@@ -262,17 +262,48 @@ sea.position.y = SEA_Y;
 scene.add(sea);
 function updateSea(px, pz) { sea.position.set(0, SEA_Y, pz); } // follows forward; flat so no snapping needed
 
-// runway ramp at start
+// ---------- Launcher (a slingshot catapult the plane fires from) ----------
+const launcher = new THREE.Group();
 {
-  const ramp = new THREE.Mesh(new THREE.BoxGeometry(8, 1, 26),
-    new THREE.MeshLambertMaterial({ color: 0x8a5a3c }));
-  ramp.position.set(0, 0.5, 6);
-  scene.add(ramp);
-  const post = new THREE.MeshLambertMaterial({ color: 0x6b4126 });
-  for (const zz of [-4, 14]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(1, 4, 1), post);
-    leg.position.set(0, -1.5, zz); ramp.add(leg);
+  const metal = new THREE.MeshStandardMaterial({ color: 0x46505e, metalness: 0.6, roughness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2b323c, metalness: 0.5, roughness: 0.6 });
+  const rubber = new THREE.MeshStandardMaterial({ color: 0x1d1f24, roughness: 0.8 });
+  // base slab
+  const base = new THREE.Mesh(new THREE.BoxGeometry(16, 1.6, 22), dark); base.position.set(0, 0.4, 4); launcher.add(base);
+  // angled launch ramp the plane rides up
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(7, 0.7, 16), metal);
+  ramp.position.set(0, 2.0, 6); ramp.rotation.x = -0.22; launcher.add(ramp);
+  // side rails
+  for (const sx of [-3.6, 3.6]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 16), metal);
+    rail.position.set(sx, 2.6, 6); rail.rotation.x = -0.22; launcher.add(rail);
   }
+  // two slingshot posts at the back, with a crossbar + elastic band
+  for (const sx of [-4.4, 4.4]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 9, 10), metal);
+    post.position.set(sx, 4.5, -3.5); launcher.add(post);
+  }
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 9.6, 8), metal);
+  bar.rotation.z = Math.PI / 2; bar.position.set(0, 8.6, -3.5); launcher.add(bar);
+  // elastic band (a pouch + two lines) — we move the pouch back while aiming
+  const band = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.0, 0.6), rubber);
+  band.position.set(0, 5, -1); launcher.add(band);
+  launcher.userData.band = band;
+  scene.add(launcher);
+}
+let launchAnimT = 0; // brief recoil/smoke after firing
+function updateLauncher(dt, aimPower) {
+  // keep the rig parked at the start; hide it once you've flown well past it
+  launcher.visible = pos.z < 220;
+  if (!launcher.visible) return;
+  const band = launcher.userData.band;
+  if (state === "aim") {
+    band.position.z = -1 - aimPower * 4.5;   // stretch the sling back as you pull
+    band.position.y = 5 - aimPower * 1.5;
+  } else if (launchAnimT > 0) {
+    launchAnimT = Math.max(0, launchAnimT - dt);
+    band.position.z = lerp(3, -1, 1 - launchAnimT / 0.35);  // snap forward
+  } else { band.position.set(0, 5, -1); }
 }
 
 // ---------- Clouds ----------
@@ -785,7 +816,7 @@ function setupRun() {
   boostFuel = boostMax;
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
   comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z; levelCleared = false;
-  flightTime = 0;
+  flightTime = 0; launchAnimT = 0;
   terrainSnapZ = NaN;                    // force terrain rebuild for the new zone amplitude
   resetCoins();
   resetCity();
@@ -822,6 +853,11 @@ function launch(power, launchPitch) {
   pitch = launchPitch; yaw = 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
+  // catapult fling: band recoil, smoke + sparks off the rig, and a kick of camera shake
+  launchAnimT = 0.35; shakeT = Math.max(shakeT, 0.4);
+  spawnBurst(0, terrainH(0, 6) + 2, 5, 0xdfe7ee, 16, 16, rand(0.8, 1.6));
+  spawnBurst(0, terrainH(0, 6) + 3, 4, 0xffd27a, 10, 22, 0.6);
+  Sound.boost(); haptic(30);
   hideArc();
   state = "flight";
   hud.classList.remove("hidden");
@@ -1053,6 +1089,7 @@ function updateFlight(dt) {
   updateTrail(dt);
   updateShadow();
   updateSea(pos.x, pos.z);
+  updateLauncher(dt, 0);
   updateTerrain(pos.x, pos.z);
   updateChaseCamera(dt, f);
   updateHUD();
@@ -1110,17 +1147,24 @@ function updateChaseCamera(dt, f) {
 
 // ---------- Aim camera / preview ----------
 function updateAim(dt) {
+  // a more side-on view so the launch angle reads clearly while you aim
   fh.set(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
-  camGoal.copy(pos).addScaledVector(fh, -14); camGoal.y += 6;
+  camGoal.copy(pos).addScaledVector(fh, -15); camGoal.x += 9; camGoal.y += 5;
   camera.position.lerp(camGoal, Math.min(1, dt * 3));
-  camLook.copy(pos); camLook.y += 2; camLook.z += 8;
+  camLook.copy(pos); camLook.y += 3; camLook.z += 10;
   camera.lookAt(camLook);
+  // point the plane where it will launch, and pull it back into the sling by power
+  const av = (touch.down) ? aimValues() : { power: 0, lp: 0.6 };
+  plane.rotation.set(-av.lp, 0, 0);
+  plane.position.set(pos.x, pos.y - av.power * 1.2, pos.z - av.power * 4.5);
+  updateLauncher(dt, av.power);
   updateShadow();
   spinCoins(dt);
 }
 
 function updateTitle(dt) {
   titleT += dt;
+  updateLauncher(dt, 0);
   const r = 20;
   camera.position.set(Math.sin(titleT * 0.25) * r, 7 + Math.sin(titleT * 0.4) * 1.5, 6 + Math.cos(titleT * 0.25) * r);
   camera.lookAt(0, 2, 8);
@@ -1231,11 +1275,14 @@ function onUp() {
   touch.down = false;
 }
 function aimValues() {
-  const dy = touch.y - touch.startY;       // drag down to pull back
-  const len = Math.hypot(touch.x - touch.startX, dy);
+  const dx = touch.x - touch.startX, dy = touch.y - touch.startY; // drag down/back to pull
+  const len = Math.hypot(dx, dy);
   const maxDrag = window.innerHeight * 0.4;
   const power = clamp(len / maxDrag, 0, 1);
-  const lp = 0.35 + power * 0.4;            // harder pull = steeper + faster
+  // launch ANGLE comes from the drag DIRECTION: a steep (straight-down) pull launches steep,
+  // a shallow (more sideways) pull launches flat. vert = how vertical the drag is (0..1).
+  const vert = len > 6 ? clamp(dy / len, 0, 1) : 0.6;
+  const lp = lerp(0.24, 1.2, vert);          // ~14° (flat) .. ~69° (steep)
   return { power, lp };
 }
 function predictArc() {
