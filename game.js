@@ -91,14 +91,28 @@ function terrainH(x, z) {
 function laneX(z) { return Math.sin(z * 0.008) * 34 + Math.sin(z * 0.021 + 1.3) * 14; }
 
 // ---------- Upgrades & evolution ----------
+// Main hangar shop: the five flight upgrades (keeps the core loadout tight).
 const UPGRADES = [
-  { key: "power",  ico: "🚀", name: "Launch Power",    max: 8, baseCost: 65,  growth: 1.62 },
-  { key: "boost",  ico: "🔥", name: "Boost Thrust",    max: 8, baseCost: 80,  growth: 1.62 },
-  { key: "fuel",   ico: "⛽", name: "Fuel Tank",       max: 8, baseCost: 70,  growth: 1.62 },
-  { key: "aero",   ico: "🪶", name: "Aerodynamics",    max: 8, baseCost: 90,  growth: 1.66 },
-  { key: "wings",  ico: "🛩", name: "Wings & Lift",     max: 8, baseCost: 95,  growth: 1.66 },
+  { key: "power",  ico: "🚀", name: "Launch Power",  max: 8, baseCost: 65, growth: 1.62 },
+  { key: "boost",  ico: "🔥", name: "Boost Thrust",  max: 8, baseCost: 80, growth: 1.62 },
+  { key: "fuel",   ico: "⛽", name: "Fuel Tank",     max: 8, baseCost: 70, growth: 1.62 },
+  { key: "aero",   ico: "🪶", name: "Aerodynamics",  max: 8, baseCost: 90, growth: 1.66 },
+  { key: "wings",  ico: "🛩", name: "Wings & Lift",   max: 8, baseCost: 95, growth: 1.66 },
+];
+// Store boosters (bought separately, with coins).
+const BOOSTERS = [
   { key: "magnet", ico: "🧲", name: "Coin Magnet",     max: 6, baseCost: 110, growth: 1.66 },
   { key: "mult",   ico: "✨", name: "Coin Multiplier", max: 6, baseCost: 140, growth: 1.72 },
+];
+const ALL_UP = UPGRADES.concat(BOOSTERS);
+// Plane skins (cosmetic recolors) sold in the Store; "default" uses the evolution-tier colors.
+const SKINS = [
+  { key: "default", name: "Standard", cost: 0 },
+  { key: "crimson", name: "Crimson Arrow", cost: 600,  body: 0xff5a5a, accent: 0x9b1b1b },
+  { key: "midnight",name: "Midnight",      cost: 900,  body: 0x2b3a8a, accent: 0x6a78ff },
+  { key: "jade",    name: "Jade Dragon",   cost: 1200, body: 0x3fd08a, accent: 0x0f6b46 },
+  { key: "gold",    name: "Golden Eagle",  cost: 2000, body: 0xffd454, accent: 0xb8860b },
+  { key: "neon",    name: "Neon Pulse",    cost: 2600, body: 0x39ffe0, accent: 0xff2bd6 },
 ];
 const TIERS = [
   { name: "Paper Glider", body: 0xeef4ff, accent: 0xb9d3ff, scale: 0.9 },
@@ -123,7 +137,10 @@ function loadSave() {
   save.stars = (save.stars && typeof save.stars === "object") ? save.stars : {};
   save.perk = save.perk || "none";
   save.up = save.up || {};
-  for (const u of UPGRADES) save.up[u.key] = save.up[u.key] || 0;
+  for (const u of ALL_UP) save.up[u.key] = save.up[u.key] || 0;
+  save.skins = (save.skins && typeof save.skins === "object") ? save.skins : { default: 1 };
+  save.skins.default = 1;
+  save.skin = save.skin || "default";
   if (!Array.isArray(save.missions) || save.missions.length < 3) save.missions = [makeMission(), makeMission(), makeMission()];
   save.lastDaily = save.lastDaily || "";
   save.settings = Object.assign({ invert: false, sens: 1.0, sound: true, haptics: true, quality: "auto" }, save.settings || {});
@@ -859,12 +876,18 @@ function evalMissions(stats) {
 
 // ---------- Plane ----------
 let plane = null;
+function skinColors(t) {
+  const s = SKINS.find(k => k.key === save.skin);
+  if (s && s.key !== "default" && s.body !== undefined) return { body: s.body, accent: s.accent };
+  return { body: t.body, accent: t.accent };
+}
 function buildPlane(tier) {
   if (plane) scene.remove(plane);
   const t = TIERS[tier];
+  const sk = skinColors(t);
   const g = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: t.body, metalness: 0.2, roughness: 0.55 });
-  const accent = new THREE.MeshStandardMaterial({ color: t.accent, metalness: 0.25, roughness: 0.5 });
+  const body = new THREE.MeshStandardMaterial({ color: sk.body, metalness: 0.2, roughness: 0.55 });
+  const accent = new THREE.MeshStandardMaterial({ color: sk.accent, metalness: 0.25, roughness: 0.5 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x16335c, metalness: 0.3, roughness: 0.3 });
   const gold = new THREE.MeshStandardMaterial({ color: 0xffd454, metalness: 0.6, roughness: 0.3 });
 
@@ -1563,9 +1586,10 @@ function boostStartAt(x, y) {
 }
 function boostStop() { boostHeld = false; boostId = null; boostBtn.classList.remove("active", "show"); }
 
+const BOOST_ZONE = 0.28;   // left ~28% is the boost tap zone; the rest of the screen is the joystick
 function flightStart(list) {
   for (const t of list) {
-    if (t.clientX >= window.innerWidth * 0.5) {
+    if (t.clientX >= window.innerWidth * BOOST_ZONE) {
       if (joy.id === null) { joy.id = t.identifier; joy.active = true; recomputeJoyCenter(); joyMoveTo(t.clientX, t.clientY); }
     } else {
       if (boostId === null && boostStartAt(t.clientX, t.clientY)) boostId = t.identifier;
@@ -1582,7 +1606,7 @@ function flightEnd(list) {
 // mouse (desktop, single pointer)
 let mouseRole = null;
 function flightMouseDown(e) {
-  if (e.clientX >= window.innerWidth * 0.5) { mouseRole = "joy"; joy.id = -1; joy.active = true; recomputeJoyCenter(); joyMoveTo(e.clientX, e.clientY); }
+  if (e.clientX >= window.innerWidth * BOOST_ZONE) { mouseRole = "joy"; joy.id = -1; joy.active = true; recomputeJoyCenter(); joyMoveTo(e.clientX, e.clientY); }
   else if (boostStartAt(e.clientX, e.clientY)) { mouseRole = "boost"; boostId = -1; }
 }
 function flightMouseMove(e) { if (mouseRole === "joy") joyMoveTo(e.clientX, e.clientY); }
@@ -1618,6 +1642,7 @@ const overlays = {
   result: document.getElementById("resultScreen"),
   settings: document.getElementById("settingsScreen"),
   pause: document.getElementById("pauseScreen"),
+  store: document.getElementById("storeScreen"),
 };
 function hideAllOverlays() { for (const k in overlays) overlays[k].classList.add("hidden"); }
 function showOverlay(key) { hideAllOverlays(); (overlays[key] || document.getElementById(key)).classList.remove("hidden"); }
@@ -1655,8 +1680,51 @@ function buyUpgrade(u) {
   const cost = upgradeCost(u);
   if (lvl(u.key) >= u.max || save.coins < cost) return;
   save.coins -= cost; save.up[u.key]++;
-  persist(); renderShop();
+  persist();
+  if (state === "store") renderStore(); else renderShop();
 }
+
+// ---------- Store (boosters + plane skins) ----------
+function renderStore() {
+  document.getElementById("storeCoins").textContent = save.coins;
+  // boosters
+  const bEl = document.getElementById("storeBoosters");
+  if (bEl) {
+    bEl.innerHTML = `<div class="mTitle">⚡ BOOSTERS</div>`;
+    for (const u of BOOSTERS) {
+      const level = lvl(u.key), maxed = level >= u.max, cost = upgradeCost(u);
+      const row = document.createElement("div");
+      row.className = "up" + (maxed ? " maxed" : "");
+      const pips = Array.from({ length: u.max }, (_, i) => `<span class="pip ${i < level ? "on" : ""}"></span>`).join("");
+      row.innerHTML = `<div class="ico">${u.ico}</div><div class="info"><div class="name">${u.name} <span style="opacity:.7;font-weight:600">Lv ${level}</span></div><div class="pips">${pips}</div></div>
+        <button class="buy" ${maxed || save.coins < cost ? "disabled" : ""}>${maxed ? "MAX" : `<span class="c"><span class="coin"></span>${cost}</span>`}</button>`;
+      if (!maxed) row.querySelector(".buy").addEventListener("click", () => buyUpgrade(u));
+      bEl.appendChild(row);
+    }
+  }
+  // skins
+  const sEl = document.getElementById("storeSkins");
+  if (sEl) {
+    sEl.innerHTML = `<div class="mTitle">🎨 PLANES & SKINS</div>`;
+    for (const s of SKINS) {
+      const owned = !!save.skins[s.key], equipped = save.skin === s.key;
+      const row = document.createElement("div");
+      row.className = "up";
+      const sw = s.body !== undefined ? `background:#${s.body.toString(16).padStart(6, "0")}` : "background:linear-gradient(45deg,#eef4ff,#b9d3ff)";
+      let btn;
+      if (equipped) btn = `<button class="buy" disabled>EQUIPPED</button>`;
+      else if (owned) btn = `<button class="buy equip">EQUIP</button>`;
+      else btn = `<button class="buy" ${save.coins < s.cost ? "disabled" : ""}><span class="c"><span class="coin"></span>${s.cost}</span></button>`;
+      row.innerHTML = `<div class="ico"><span class="skinSw" style="${sw}"></span></div><div class="info"><div class="name">${s.name}</div></div>${btn}`;
+      const button = row.querySelector(".buy");
+      if (equipped) {/* no-op */}
+      else if (owned) button.addEventListener("click", () => { save.skin = s.key; persist(); buildPlane(save.tier); renderStore(); });
+      else if (save.coins >= s.cost) button.addEventListener("click", () => { save.coins -= s.cost; save.skins[s.key] = 1; save.skin = s.key; persist(); buildPlane(save.tier); Sound.coin(); renderStore(); });
+      sEl.appendChild(row);
+    }
+  }
+}
+function goStore() { Sound.resume(); renderStore(); showOverlay("store"); state = "store"; }
 
 function renderMissions() {
   const el = document.getElementById("missions");
@@ -1692,6 +1760,8 @@ document.getElementById("playBtn").addEventListener("click", goHangar);
 document.getElementById("launchBtn").addEventListener("click", goAim);
 document.getElementById("againBtn").addEventListener("click", goAim);
 document.getElementById("shopBtn").addEventListener("click", goHangar);
+document.getElementById("storeBtn").addEventListener("click", goStore);
+document.getElementById("storeClose").addEventListener("click", goHangar);
 document.getElementById("resetBtn").addEventListener("click", () => {
   if (!(window.confirm && window.confirm("Reset all progress? This clears coins, upgrades, evolution, and your best distance."))) return;
   try { localStorage.removeItem(SAVE_KEY); } catch (e) {}

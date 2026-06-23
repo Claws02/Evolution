@@ -166,7 +166,13 @@ catch (e) { assert(false, "title frames threw: " + e.message); }
 // 2) Play -> hangar, shop renders, tier reflects seeded upgrades (12 levels -> tier 3)
 fire("playBtn", "click");
 assert(!document.getElementById("hangarScreen").classList.contains("hidden"), "hangar screen visible after Play");
-assert(document.getElementById("shop").children.length === 7, "hangar shop rendered 7 upgrade rows");
+assert(document.getElementById("shop").children.length === 5, "hangar shop rendered 5 flight-upgrade rows");
+fire("storeBtn", "click");
+assert(!document.getElementById("storeScreen").classList.contains("hidden"), "store opens from hangar");
+assert(document.getElementById("storeBoosters").children.length >= 2, "store lists boosters (magnet + multiplier)");
+assert(document.getElementById("storeSkins").children.length >= 2, "store lists plane skins");
+fire("storeClose", "click");
+assert(!document.getElementById("hangarScreen").classList.contains("hidden"), "store DONE returns to hangar");
 assert(document.getElementById("missions")._html.indexOf("MISSIONS") >= 0, "missions panel rendered in hangar");
 assert(document.getElementById("perks")._html.indexOf("LOADOUT") >= 0, "perk loadout rendered in hangar");
 assert(document.getElementById("nextLevel")._text.indexOf("LEVEL 1/") >= 0, "next-level/campaign progress shown");

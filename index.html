@@ -92,6 +92,12 @@
   #hangarScroll { width:100%; max-width:460px; overflow-y:auto; max-height: 50vh; -webkit-overflow-scrolling: touch;
                   display:flex; flex-direction:column; gap:9px; padding:2px; }
   #nextLevel { color:#fff; opacity:.95; }
+  #storeScroll { width:100%; max-width:460px; overflow-y:auto; max-height: 52vh; -webkit-overflow-scrolling: touch;
+                 display:flex; flex-direction:column; gap:9px; padding:2px; }
+  #storeBoosters, #storeSkins { display:flex; flex-direction:column; gap:9px; }
+  #storeBoosters .mTitle, #storeSkins .mTitle { font-size:11px; font-weight:800; letter-spacing:2px; opacity:.7; margin:4px 0; }
+  .buy.equip { background:linear-gradient(#7dffb0,#39d6ff); box-shadow:0 4px 0 #2f8f6a; }
+  .skinSw { display:inline-block; width:24px; height:24px; border-radius:6px; border:1px solid rgba(255,255,255,.5); }
   #perks { width:100%; background:rgba(10,30,60,.4); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:10px 12px; }
   #perks .mTitle { font-size:11px; font-weight:800; letter-spacing:2px; opacity:.7; margin-bottom:6px; }
   #perks .perkRow { display:flex; gap:6px; flex-wrap:wrap; }
@@ -242,8 +248,22 @@
     <div id="missions"></div>
     <div id="shop"></div>
   </div>
-  <button id="launchBtn">TO THE RUNWAY ✈</button>
+  <div class="row2">
+    <button id="storeBtn" class="secondary">🛍 STORE</button>
+    <button id="launchBtn">RUNWAY ✈</button>
+  </div>
   <p class="tag">⭐ <span id="starCount">0</span> stars · Best <span id="bestHangar">0</span> m</p>
+</div>
+
+<!-- Store -->
+<div id="storeScreen" class="overlay hidden">
+  <h1 style="font-size:clamp(28px,8vw,48px)">STORE</h1>
+  <div class="coinsRow"><span class="coin"></span><span id="storeCoins">0</span></div>
+  <div class="scroll" id="storeScroll">
+    <div id="storeBoosters"></div>
+    <div id="storeSkins"></div>
+  </div>
+  <button id="storeClose">DONE</button>
 </div>
 
 <!-- Results -->
