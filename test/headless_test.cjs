@@ -75,6 +75,7 @@ const THREE = {
   CylinderGeometry: class { constructor() { Object.assign(this, geo()); } },
   TorusGeometry: class { constructor() { Object.assign(this, geo()); } },
   SphereGeometry: class { constructor() { Object.assign(this, geo()); } },
+  OctahedronGeometry: class { constructor() { Object.assign(this, geo()); } },
 };
 
 // ---------- DOM mock ----------

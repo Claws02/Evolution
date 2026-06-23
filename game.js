@@ -499,6 +499,63 @@ function resetFuels() {
   for (const f of fuels) placeFuel(f);
 }
 
+// ---------- Sky power-ups (mostly help, occasionally hurt) ----------
+const POWERS = {
+  fuelFull: { color: 0x5effb0, good: true,  label: "⛽ FULL TANK!" },
+  mega:     { color: 0xffd454, good: true,  label: "🚀 UNLIMITED BOOST 10s" },
+  frenzy:   { color: 0xffe27a, good: true,  label: "💰 COIN FRENZY ×3" },
+  magnet:   { color: 0x49e0ff, good: true,  label: "🧲 MAGNET BURST" },
+  shrink:   { color: 0xb6f0ff, good: true,  label: "🪁 FEATHER (easy lift) 8s" },
+  fuelEmpty:{ color: 0xff5b5b, good: false, label: "💨 TANK EMPTIED!" },
+  stall:    { color: 0x9a6bff, good: false, label: "🌀 HEAVY AIR!" },
+};
+// weighted spawn pool (helpful far more common than harmful)
+const POWER_BAG = ["fuelFull","fuelFull","mega","frenzy","frenzy","magnet","shrink","mystery","mystery","fuelEmpty","stall"];
+const powGlowTex = makeGlowTexture("rgba(255,255,255,1)");
+const powGeo = new THREE.OctahedronGeometry(2.2, 0);
+const POW_COUNT = 7;
+const powers = [];
+for (let i = 0; i < POW_COUNT; i++) {
+  const grp = new THREE.Group();
+  const core = new THREE.Mesh(powGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x222222, emissiveIntensity: 0.8, metalness: 0.3, roughness: 0.4 }));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: powGlowTex, transparent: true, opacity: 0.6, depthWrite: false }));
+  glow.scale.set(9, 9, 1); grp.add(glow); grp.add(core);
+  grp.visible = false; scene.add(grp);
+  powers.push({ grp, core, glow, x: 0, y: 0, z: 0, type: "fuelFull", got: false });
+}
+let powFarZ = 0;
+function placePower(p) {
+  powFarZ += rand(340, 620);
+  p.z = powFarZ; p.x = laneX(p.z) + rand(-40, 40); p.y = terrainH(p.x, p.z) + rand(22, 64);
+  p.type = choice(POWER_BAG);
+  const def = p.type === "mystery" ? { color: 0xff2bd6 } : POWERS[p.type];
+  if (p.core.material.color && p.core.material.color.setHex) p.core.material.color.setHex(def.color);
+  if (p.core.material.emissive && p.core.material.emissive.setHex) p.core.material.emissive.setHex(def.color);
+  if (p.glow.material.color && p.glow.material.color.setHex) p.glow.material.color.setHex(def.color);
+  p.got = false; p.grp.visible = true; p.grp.position.set(p.x, p.y, p.z);
+}
+function resetPowers() { powFarZ = 240; for (const p of powers) placePower(p); }
+function applyPower(type) {
+  if (type === "mystery") { // usually good, small chance bad
+    const pool = Math.random() < 0.78 ? ["fuelFull", "mega", "frenzy", "magnet", "shrink"] : ["fuelEmpty", "stall"];
+    type = choice(pool);
+  }
+  const def = POWERS[type];
+  switch (type) {
+    case "fuelFull": boostFuel = boostMax; break;
+    case "fuelEmpty": boostFuel = 0; break;
+    case "mega": megaBoostT = 10; break;
+    case "frenzy": frenzyT = 8; break;
+    case "magnet": magnetBurstT = 6; break;
+    case "shrink": featherT = 8; break;
+    case "stall": stallT = 5; break;
+  }
+  goalBanner(def.label);
+  if (def.good) { Sound.fuel(); spawnBurst(pos.x, pos.y, pos.z, def.color, 12, 16); }
+  else { Sound.crash(); spawnBurst(pos.x, pos.y, pos.z, def.color, 14, 18); shakeT = Math.max(shakeT, 0.25); }
+  haptic(def.good ? 15 : [30, 20, 30]);
+}
+
 // ---------- Particle / debris pool ----------
 const partGeo = new THREE.BoxGeometry(1, 1, 1);
 const PART_COUNT = 70;
@@ -567,7 +624,7 @@ function placeThermal(t) {
 function resetThermals() { thermalFarZ = 220; for (const t of thermals) placeThermal(t); }
 
 // ---------- Obstacles (blimps, cranes, birds, rising balloons, swinging pendulums) ----------
-const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum"];
+const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone"];
 const obstacles = [];
 const PEND_ARM = 24;
 const OBS_COUNT = 12;
@@ -606,6 +663,14 @@ function buildObstacle(type) {
       new THREE.MeshStandardMaterial({ color: 0x444a55, metalness: 0.4, roughness: 0.6 }));
     ball.position.y = -PEND_ARM; armG.add(ball);
     g.add(armG); g.userData.swing = armG;
+  } else if (type === "drone") { // fast erratic quad-drone
+    const dm = new THREE.MeshStandardMaterial({ color: 0x33363d, metalness: 0.5, roughness: 0.5 });
+    const rm = new THREE.MeshStandardMaterial({ color: 0xff3b3b, emissive: 0x6a0000, emissiveIntensity: 0.6 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1, 2.2), dm); g.add(body);
+    for (const [ax, az] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) {
+      const rotor = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.3, 10), rm);
+      rotor.position.set(ax, 0.5, az); g.add(rotor);
+    }
   } else { // bird flock — a few V shapes
     const bm = new THREE.MeshStandardMaterial({ color: 0x2c2c38, roughness: 0.7 });
     for (let i = 0; i < 4; i++) {
@@ -649,6 +714,10 @@ function placeObstacle(o) {
     o.x = laneX(o.z) + rand(-20, 20); o.pivotY = gh + PEND_ARM + rand(24, 40);
     o.amp = rand(0.7, 1.05); o.phase = rand(0, TAU); o.swingSpd = rand(1.1, 1.8);
     o.y = o.pivotY; o.grp.position.set(o.x, o.pivotY, o.z);
+  } else if (o.type === "drone") {
+    o.x = laneX(o.z) + rand(-30, 30); o.baseY = gh + rand(26, 58);
+    o.amp = rand(26, 50); o.phase = rand(0, TAU); o.swingSpd = rand(1.6, 2.6);
+    o.y = o.baseY; o.grp.position.set(o.x, o.y, o.z);
   } else { // bird
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
     o.grp.position.set(o.x, o.y, o.z);
@@ -789,28 +858,29 @@ function levelLength(n) {
 }
 let curLevelLen = 2200;
 const LEVELS = [
-  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum"],      gate: "wall",   tunnel: false },
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone"], gate: "wall",   tunnel: false },
   { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon"],       gate: "wall",   tunnel: false },
   { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050, obs: ["crane", "bird"],         gate: "canyon", tunnel: false },
   { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150, obs: ["bird", "balloon"],       gate: "canyon", tunnel: false },
   { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon"],       gate: "mix",    tunnel: false },
   { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird"],         gate: "wall",   tunnel: true  },
-  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "crane", "pendulum"], gate: "mix",    tunnel: false },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "pendulum", "drone"], gate: "mix",    tunnel: false },
 ];
 // Curated campaign: a finite arc of 12 named levels with a finale, then endless beyond it.
+// A trip around the world — each level is a place with its own little story.
 const CAMPAIGN = [
-  { zone: 0, len: 2200, name: "Downtown Dash" },
-  { zone: 1, len: 2500, name: "Sea Breeze" },
-  { zone: 4, len: 2800, name: "Green Mile" },
-  { zone: 3, len: 3100, name: "Mesa Run" },
-  { zone: 2, len: 3500, name: "High Country" },
-  { zone: 6, len: 3800, name: "Skyline" },
-  { zone: 5, len: 4200, name: "Cold Snap" },
-  { zone: 1, len: 4700, name: "Long Shore" },
-  { zone: 3, len: 5300, name: "Canyon Gauntlet" },
-  { zone: 2, len: 6000, name: "The Ridge" },
-  { zone: 0, len: 7000, name: "Metro Marathon" },
-  { zone: 6, len: 9000, name: "FINALE: Cloud Nine" },
+  { zone: 0, len: 2200, name: "Neo-Tokyo",     story: "Take off through the neon canyons of the future city." },
+  { zone: 1, len: 2500, name: "Aegean Coast",  story: "Skim the whitewashed cliffs above a turquoise sea." },
+  { zone: 4, len: 2800, name: "Emerald Isle",  story: "Low over rolling green hills and stone fences." },
+  { zone: 3, len: 3100, name: "Red Mesa",      story: "Bake across the desert buttes at golden hour." },
+  { zone: 2, len: 3500, name: "Andes Pass",    story: "Climb the thin air of the high mountain passes." },
+  { zone: 6, len: 3800, name: "Gulf Skyline",  story: "Thread a glittering skyline of glass towers." },
+  { zone: 5, len: 4200, name: "Nordic Ice",    story: "Glide the silent blue light of a glacier." },
+  { zone: 1, len: 4700, name: "Amalfi Run",    story: "Hug the long cliffside road above the bay." },
+  { zone: 3, len: 5300, name: "Petra Canyons", story: "Weave the narrow rose-rock channels of the lost city." },
+  { zone: 2, len: 6000, name: "Himalaya",      story: "Cross the roof of the world along the great ridge." },
+  { zone: 0, len: 7000, name: "Manhattan",     story: "A marathon through the original concrete jungle." },
+  { zone: 6, len: 9000, name: "Cloud Nine",    story: "FINALE — break through the clouds to the summit of the sky." },
 ];
 const CAMPAIGN_LEN = CAMPAIGN.length;
 function zoneForLevel(n) {
@@ -828,12 +898,18 @@ function applyZone(z) {
   setColorHex(hemi.color, z.hs);
   setColorHex(hemi.groundColor, z.hg);
 }
+function levelStory(n) { return n < CAMPAIGN_LEN ? (CAMPAIGN[n].story || "") : "Endless skies — how far can you go?"; }
 function announceLevel() {
   const el = document.getElementById("levelName");
   if (el) {
     const prog = save.level < CAMPAIGN_LEN ? "LEVEL " + (save.level + 1) + "/" + CAMPAIGN_LEN : "ENDLESS";
     el.textContent = prog + " · " + levelName(save.level);
-    el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2600);
+    el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 3400);
+  }
+  const st = document.getElementById("levelStory");
+  if (st) {
+    st.textContent = levelStory(save.level);
+    st.classList.add("show"); clearTimeout(st._t); st._t = setTimeout(() => st.classList.remove("show"), 3400);
   }
 }
 
@@ -961,6 +1037,7 @@ let boostFuel = 0, boostMax = 0, boosting = false;
 let runCoins = 0, lowSpeedT = 0, pendingEvoName = null, titleT = 0, shakeT = 0;
 let comboMult = 1, ringsPassed = 0, runCoinPickups = 0, crashT = 0, prevZ = 0, levelCleared = false;
 let flightTime = 0;        // time spent flying this run (for star ratings)
+let megaBoostT = 0, frenzyT = 0, magnetBurstT = 0, featherT = 0, stallT = 0; // active power-up timers
 const PLANE_GROUND = 1.6;
 
 // ---------- Loadout perks (pick one per run) ----------
@@ -988,6 +1065,7 @@ function setupRun() {
   boosting = false; runCoins = 0; lowSpeedT = 0; pendingEvoName = null; shakeT = 0;
   comboMult = 1; ringsPassed = 0; runCoinPickups = 0; crashT = 0; prevZ = pos.z; levelCleared = false;
   flightTime = 0; launchAnimT = 0;
+  megaBoostT = 0; frenzyT = 0; magnetBurstT = 0; featherT = 0; stallT = 0;
   terrainSnapZ = NaN;                    // force terrain rebuild for the new zone amplitude
   resetCoins();
   resetCity();
@@ -997,6 +1075,7 @@ function setupRun() {
   resetObstacles();
   resetBarriers();
   resetTunnels();
+  resetPowers();
   placeFinish();
   for (const p of parts) { p.active = false; p.m.visible = false; }
   for (const p of trail) { p.life = 0; p.m.visible = false; }
@@ -1055,7 +1134,14 @@ function updateFlight(dt) {
     targetPitch = clamp(inv * joy.y * 0.8 * sens, -0.75, 0.9);  // default: push stick DOWN = climb
     yawRate = -joy.x * 1.2 * sens;                              // stick right = bank right on screen
   }
-  boosting = boostHeld && boostFuel > 0 && hasBoost();
+  // power-up timers
+  if (megaBoostT > 0) megaBoostT -= dt;
+  if (frenzyT > 0) frenzyT -= dt;
+  if (magnetBurstT > 0) magnetBurstT -= dt;
+  if (featherT > 0) featherT -= dt;
+  if (stallT > 0) stallT -= dt;
+  const mega = megaBoostT > 0;
+  boosting = mega || (boostHeld && boostFuel > 0 && hasBoost());
   flightTime += dt;
   comboMult = Math.max(1, comboMult - 0.22 * dt);  // style combo decays unless you keep it up
 
@@ -1066,13 +1152,13 @@ function updateFlight(dt) {
   const f = forwardVec(fTmp);
   let speed = vel.length();
 
-  // thrust (only once a Boost upgrade is owned)
+  // thrust (boost upgrade, or free during a mega-boost power-up)
   const flame = plane.userData.flame;
   if (boosting) {
-    const thrust = 48 + lvl("boost") * 12 + save.tier * 3;
+    const thrust = (mega ? 70 : 48) + lvl("boost") * 12 + save.tier * 3;
     vel.addScaledVector(f, thrust * dt);
-    boostFuel = Math.max(0, boostFuel - dt);
-    if (flame) { flame.visible = true; flame.scale.setScalar(rand(0.8, 1.3)); }
+    if (!mega) boostFuel = Math.max(0, boostFuel - dt);   // mega-boost doesn't burn fuel
+    if (flame) { flame.visible = true; flame.scale.setScalar(rand(0.8, 1.3) * (mega ? 1.5 : 1)); }
   } else if (flame) flame.visible = false;
 
   // gravity
@@ -1081,9 +1167,13 @@ function updateFlight(dt) {
   // pitch trades altitude for speed: nose DOWN accelerates strongly, nose UP decelerates
   vel.addScaledVector(f, -Math.sin(pitch) * G * 1.3 * dt);
 
+  // stall power-up: heavy air drags you down for a few seconds
+  if (stallT > 0) vel.y -= 16 * dt;
   // lift: horizontal speed sustains altitude. Weak by default — Wings upgrades matter a lot.
   const speedH = Math.hypot(vel.x, vel.z);
-  const lift = clamp(speedH * (0.014 + lvl("wings") * 0.026 + perkLift()), 0, G * 0.95);
+  let liftCoef = 0.014 + lvl("wings") * 0.026 + perkLift() + (featherT > 0 ? 0.03 : 0);
+  if (stallT > 0) liftCoef *= 0.5;
+  const lift = clamp(speedH * liftCoef, 0, G * 0.95);
   vel.y += lift * dt;
 
   // cabin pressure: climb too high and the thin air bleeds your speed and drags you down
@@ -1135,13 +1225,14 @@ function updateFlight(dt) {
   plane.rotation.set(-pitch, yaw, roll);
 
   // coin value scales with the Coin Multiplier upgrade, the ring/style combo, and the Coin Rush perk
-  const coinValue = Math.max(1, Math.round((1 + lvl("mult") * 0.5) * comboMult * perkCoin()));
-  const magnetR = (9 + lvl("magnet") * 11) * (runPerk === "coins" ? 1.4 : 1);
+  const coinValue = Math.max(1, Math.round((1 + lvl("mult") * 0.5) * comboMult * perkCoin() * (frenzyT > 0 ? 3 : 1)));
+  const magnetR = (9 + lvl("magnet") * 11) * (runPerk === "coins" ? 1.4 : 1) + (magnetBurstT > 0 ? 80 : 0);
+  const magnetActive = lvl("magnet") > 0 || magnetBurstT > 0;
   for (const c of coins) {
     if (!c.got) {
       const dx = c.x - pos.x, dy = c.y - pos.y, dz = c.z - pos.z;
       const d2 = dx * dx + dy * dy + dz * dz;
-      if (lvl("magnet") > 0 && d2 < magnetR * magnetR) {  // magnet pull
+      if (magnetActive && d2 < magnetR * magnetR) {  // magnet pull
         const d = Math.sqrt(d2) || 1, pull = 60 * dt * (1 - d / magnetR);
         c.x += (dx / d) * pull * d; c.y += (dy / d) * pull * d; c.z += (dz / d) * pull * d;
         c.mesh.position.set(c.x, c.y, c.z);
@@ -1169,6 +1260,16 @@ function updateFlight(dt) {
       }
     }
     if (f.got || pos.z - f.z > 60) placeFuel(f);
+  }
+
+  // sky power-ups
+  for (const p of powers) {
+    if (!p.got) {
+      p.grp.rotation.y += dt * 1.6; p.core.rotation.x += dt * 1.2;
+      const dx = p.x - pos.x, dy = p.y - pos.y, dz = p.z - pos.z;
+      if (dx * dx + dy * dy + dz * dz < 56) { p.got = true; p.grp.visible = false; applyPower(p.type); }
+    }
+    if (p.got || pos.z - p.z > 60) placePower(p);
   }
 
   // rings / boost gates — fly through to build a combo and gain a speed kick
@@ -1239,6 +1340,14 @@ function updateFlight(dt) {
       const e = dx * dx + dy * dy + dz * dz;
       if (e < 1) { crash(); }
       else if (!o.near && e < 2.2) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "drone") { // darts side to side fast — hard to predict
+      const bx = o.x + Math.sin(flightTime * o.swingSpd + o.phase) * o.amp;
+      const by = o.baseY + Math.sin(flightTime * o.swingSpd * 1.7 + o.phase) * 8;
+      o.grp.position.set(bx, by, o.z);
+      const dx = pos.x - bx, dy = pos.y - by, dz = pos.z - o.z;
+      const e = dx * dx + dy * dy + dz * dz;
+      if (e < 16) { crash(); }
+      else if (!o.near && e < 64) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
     } else if (o.type === "pendulum") { // wrecking ball swings across the lane
       const th = Math.sin(flightTime * o.swingSpd + o.phase) * o.amp;
       if (o.grp.userData.swing) o.grp.userData.swing.rotation.z = th;
@@ -1476,6 +1585,7 @@ function goalBanner(text) {
   clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2000);
 }
 const cabinEl = document.getElementById("cabinWarn");
+const powerHud = document.getElementById("powerHud");
 function updateHUD() {
   distBig.innerHTML = Math.max(0, Math.floor(pos.z)) + "<small>METERS</small>";
   coinHud.innerHTML = "◉ " + runCoins + (comboMult > 1 ? ` <span style="color:#49e0ff">×${comboMult.toFixed(1)}</span>` : "");
@@ -1484,6 +1594,15 @@ function updateHUD() {
   fuelFill.style.width = (frac * 100) + "%";
   fuelLabel.textContent = boostFuel > 0 ? "BOOST FUEL 🔥" : "BOOST EMPTY — GLIDE!";
   if (cabinEl) cabinEl.classList.toggle("show", cabinWarn);
+  if (powerHud) {
+    let s = "";
+    if (megaBoostT > 0) s += "🚀" + Math.ceil(megaBoostT) + " ";
+    if (frenzyT > 0) s += "💰" + Math.ceil(frenzyT) + " ";
+    if (magnetBurstT > 0) s += "🧲" + Math.ceil(magnetBurstT) + " ";
+    if (featherT > 0) s += "🪁" + Math.ceil(featherT) + " ";
+    if (stallT > 0) s += "🌀" + Math.ceil(stallT) + " ";
+    powerHud.textContent = s;
+  }
 }
 
 // ---------- Input ----------
@@ -1852,6 +1971,7 @@ resetThermals();
 resetObstacles();
 resetBarriers();
 resetTunnels();
+resetPowers();
 placeFinish();
 updateShadow();
 checkDaily();

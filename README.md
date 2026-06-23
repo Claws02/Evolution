@@ -5,21 +5,25 @@ A **3D** browser slingshot launch-and-fly distance game, built to play on an iPh
 ## How to play
 
 1. **Launch from the catapult** — your plane sits on a slingshot launcher. **Drag toward where you want to fly** and the plane aims as you drag: drag **up** for a steep climb, flatter for a long low shot, and **left/right to veer** that way. Drag **distance** sets power. A dotted **trajectory arc** previews the exact shot; release in the sweet-spot band for a **PERFECT LAUNCH** (extra speed + fuel). Releasing fires the catapult with a smoke-and-spark kick.
-2. **Fly to the finish** — every level has an **end**: reach the 🏁 finish gate to clear it and advance to the next level. A **fixed joystick** sits in a thumb-friendly spot on the lower right; press **anywhere on the right half** to fly in that direction relative to its center (push **down to climb, up to dive**, left/right to bank). Touch **anywhere on the left half** to **boost** (once you own a Boost upgrade). Tap **⏸** any time to pause and reach Settings.
+2. **Fly to the finish** — every level has an **end**: reach the 🏁 finish gate to clear it and advance to the next level. A **fixed joystick** controls the **right ~70% of the screen** (press anywhere there to fly relative to its center: push **down to climb, up to dive**, left/right to bank). The **left ~28% is the boost tap zone** (once you own a Boost upgrade). Tap **⏸** any time to pause and reach Settings.
 3. **Work for your speed** — this is a demanding flyer. A stock plane sinks fast and stalls; you have to **dive to build speed**, spend boost, catch rings, and ride thermals to keep moving. Upgrades are what let you sustain a cruise.
 4. **Mind the limits** — the land is a **corridor flanked by open sea on both sides**: stray over the water and you ditch. Climb too high and you **lose cabin pressure** — the thin air bleeds your speed and pulls you down, so you can't just float above everything.
-5. **Dodge a gauntlet of hazards** — buildings, **swinging wrecking-ball pendulums**, **rising/falling hot-air balloons**, cranes, and bird flocks. Clipping any of them crashes you (debris + slow-mo).
+5. **Dodge a gauntlet of hazards** — buildings, **swinging wrecking-ball pendulums**, **rising/falling hot-air balloons**, darting **drones**, cranes, and bird flocks. Clipping any of them crashes you (debris + slow-mo).
 6. **Thread the gates** — walls span the corridor with a single **gap**: line up **both your altitude and your lateral position** to fly through. Gaps sit high or low, drift up/down on later levels, and come in fast **slalom chains**. **Canyon** zones pinch the corridor into narrow rock channels, and **tunnel** zones add a low overpass you must duck *under*. Coins sit right on the risky line through each gap — tighter gaps pay more.
 7. **Collect & combo** — grab coins, refill at **fuel pickups**, chain **rings** for a coin-multiplier combo + speed kick, and ride **thermal updrafts** for altitude.
+8. **Grab sky power-ups** — floating power-ups mostly help but occasionally hurt: **Full Tank**, **Unlimited Boost (10s)**, **Coin Frenzy (×3)**, **Magnet Burst**, **Feather** (easy lift) — and the odd **Empty Tank** or **Heavy Air**. Mystery boxes (?) roll a (usually good) random one.
 
-### Campaign & zones
-- A **12-level campaign** with a finale ("Cloud Nine") — beat it for a 🏆 **Campaign Complete**, then keep going in **Endless**.
+### Campaign & zones (a trip around the world)
+- A **12-level campaign** that travels the globe — each level is a **place with its own short story**, from Neo-Tokyo and the Aegean Coast to Petra's canyons and the Himalaya, ending with the finale **"Cloud Nine."** Beat it for a 🏆 **Campaign Complete**, then keep going in **Endless**.
 - Levels get **longer as you progress** (early ones are short to get you going; a fully-upgraded plane needs ~90 s on the longest).
-- Each level is a themed zone with its own sky, ground, terrain shape, and **hazard mix**: Metropolis, Coastline, Highlands, Sunset Mesa, Meadows, Glacier, Sky City.
-- **Star ratings** per level: ★ finish · ★ beat par time · ★ catch enough rings. Your best stars are saved and totalled on the title/hangar.
+- Each place has its own sky, ground, terrain shape, and **hazard mix**.
+- **Star ratings** per level: ★ finish · ★ beat par time · ★ catch enough rings. Your best stars are saved and totalled.
 
 ### Loadout perks (pick one per run)
 In the hangar choose a perk for the next run: **Full Tanks** (+50% boost fuel), **Coin Rush** (coins ×2 + wider magnet), **Head Start** (faster launch + full fuel), or **Updraft** (extra lift all run).
+
+### Store
+A separate **Store** (🛍 in the hangar) sells the **Coin Magnet** and **Coin Multiplier** boosters, plus **plane skins** you can buy and equip to recolor your aircraft.
 
 ### Style / combo scoring
 Chain **rings** and **skim hazards** for near-misses to build a coin-multiplier combo (shown as `×N`). The combo decays if you play it safe, so flying stylishly — not just far — pays off.

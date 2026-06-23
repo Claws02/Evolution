@@ -129,10 +129,16 @@
              font-weight:800; font-size:20px; text-shadow:0 2px 6px rgba(0,0,0,.4); color:#ffe27a; }
   #goalHud { position:absolute; top: calc(env(safe-area-inset-top) + 40px); right:16px;
              font-weight:800; font-size:14px; text-shadow:0 2px 6px rgba(0,0,0,.4); color:#fff; }
+  #powerHud { position:absolute; top: calc(env(safe-area-inset-top) + 60px); right:16px;
+              font-weight:800; font-size:15px; text-shadow:0 2px 6px rgba(0,0,0,.5); letter-spacing:1px; }
   #levelName { position:absolute; left:0; right:0; top: calc(env(safe-area-inset-top) + 70px); text-align:center;
                font-weight:900; font-size:18px; letter-spacing:2px; color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.55);
                opacity:0; transition:opacity .4s ease; }
   #levelName.show { opacity:1; }
+  #levelStory { position:absolute; left:0; right:0; top: calc(env(safe-area-inset-top) + 96px); text-align:center;
+                font-weight:600; font-size:14px; color:#eaf6ff; text-shadow:0 2px 6px rgba(0,0,0,.6); padding:0 24px;
+                opacity:0; transition:opacity .4s ease; }
+  #levelStory.show { opacity:1; }
   #goalBanner { position:absolute; left:0; right:0; top:38%; text-align:center; font-weight:900;
                 font-size:clamp(22px,7vw,40px); color:#ffd454; text-shadow:0 3px 10px rgba(0,0,0,.55);
                 opacity:0; transform:scale(.8); transition:opacity .25s ease, transform .25s ease; }
@@ -194,7 +200,9 @@
   <div id="distBig">0<small>METERS</small></div>
   <div id="coinHud">◉ 0</div>
   <div id="goalHud">🏁 0 m</div>
+  <div id="powerHud"></div>
   <div id="levelName"></div>
+  <div id="levelStory"></div>
   <div id="goalBanner"></div>
   <div id="cabinWarn"></div>
   <div id="aimHint"></div>
