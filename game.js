@@ -1635,7 +1635,13 @@ function updateFlight(dt) {
       } else {                                   // burst window (lethal)
         if (rocket) rocket.visible = false;
         const bf = (cyc - fuse) / 0.45;
-        if (!o.fired) { spawnFirework(o.x, o.by, o.z); Sound.crash(); shakeT = Math.max(shakeT, 0.2); o.fired = true; }
+        if (!o.fired) {
+          spawnFirework(o.x, o.by, o.z);
+          // only rumble/boom when the burst is actually near the camera — distant fireworks stay quiet
+          const ddx = pos.x - o.x, ddy = pos.y - o.by, ddz = pos.z - o.z, near2 = ddx * ddx + ddy * ddy + ddz * ddz;
+          if (near2 < 70 * 70) { Sound.crash(); shakeT = Math.max(shakeT, 0.2 * (1 - Math.sqrt(near2) / 70)); }
+          o.fired = true;
+        }
         if (burst) { burst.visible = bf < 0.6; const s = o.r * (0.4 + bf); burst.position.set(0, o.by - gh2, 0); burst.scale.set(s, s, s); burst.material.opacity = (1 - bf) * 0.7; }
         const dx = pos.x - o.x, dy = pos.y - o.by, dz = pos.z - o.z, rr = o.r * (0.5 + bf * 0.7);
         if (dx * dx + dy * dy + dz * dz < rr * rr) crash();
