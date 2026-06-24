@@ -71,10 +71,12 @@ const CORRIDOR = 120;      // playable land half-width; |x| beyond this is open 
 const SEA_Y = -6;          // sea surface height
 function terrainAmp() { return curZone ? curZone.amp : 1.0; }  // set per level
 function terrainH(x, z) {
-  let h = Math.sin(x * 0.012) * 4
-        + Math.sin(z * 0.010) * 6
-        + Math.sin((x + z) * 0.006) * 9
-        + Math.sin(z * 0.028 + x * 0.01) * 2;
+  // rolling base + a sharper ridge line so the ground actually has hills and valleys
+  let h = Math.sin(x * 0.013) * 5
+        + Math.sin(z * 0.009) * 8
+        + Math.sin((x + z) * 0.006) * 11
+        + Math.sin(z * 0.025 + x * 0.012) * 4
+        + Math.abs(Math.sin(z * 0.0045 + x * 0.004)) * 10;   // ridges
   h *= terrainAmp();
   // flatten the runway area around the start
   const flat = clamp(z / 130, 0, 1);
@@ -624,10 +626,10 @@ function placeThermal(t) {
 function resetThermals() { thermalFarZ = 220; for (const t of thermals) placeThermal(t); }
 
 // ---------- Obstacles (blimps, cranes, birds, rising balloons, swinging pendulums) ----------
-const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone"];
+const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone", "turbine", "rock", "spinbar", "laser", "gust"];
 const obstacles = [];
 const PEND_ARM = 24;
-const OBS_COUNT = 12;
+const OBS_COUNT = 18;
 function buildObstacle(type) {
   const g = new THREE.Group();
   if (type === "blimp") {
@@ -671,6 +673,37 @@ function buildObstacle(type) {
       const rotor = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.3, 10), rm);
       rotor.position.set(ax, 0.5, az); g.add(rotor);
     }
+  } else if (type === "turbine") { // wind turbine — spinning blades you fly around/over/under
+    const white = new THREE.MeshStandardMaterial({ color: 0xf2f4f7, roughness: 0.6 });
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.8, 1, 10), white); g.add(tower); g.userData.tower = tower;
+    const hub = new THREE.Group();
+    hub.add(new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), white));
+    for (let i = 0; i < 3; i++) {
+      const bl = new THREE.Mesh(new THREE.BoxGeometry(2.2, 22, 0.5), white);
+      bl.position.y = 11; bl.rotation.z = i * (TAU / 3); // pivot at hub
+      const holder = new THREE.Group(); holder.rotation.z = i * (TAU / 3);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(1.8, 22, 0.5), white); blade.position.y = 11; holder.add(blade);
+      hub.add(holder);
+    }
+    g.add(hub); g.userData.hub = hub;
+  } else if (type === "rock") { // boulder that drops, then resets
+    const rm = new THREE.MeshStandardMaterial({ color: 0x6b5a4a, roughness: 0.95 });
+    const rk = new THREE.Mesh(new THREE.SphereGeometry(3.2, 8, 6), rm); rk.scale.set(1, 0.85, 1.1); g.add(rk);
+  } else if (type === "spinbar") { // rotating bar sweeping the lane
+    const m = new THREE.MeshStandardMaterial({ color: 0xb04a3a, metalness: 0.4, roughness: 0.5 });
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), m); g.add(hub);
+    const barG = new THREE.Group();
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(64, 1.6, 1.6), m); barG.add(bar);
+    g.add(barG); g.userData.bar = barG;
+  } else if (type === "laser") { // toggling laser gate
+    const post = new THREE.MeshStandardMaterial({ color: 0x3a3f48, metalness: 0.6, roughness: 0.4 });
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xff2b4d, transparent: true, opacity: 0.9 });
+    for (const sx of [-CORRIDOR, CORRIDOR]) { const p = new THREE.Mesh(new THREE.BoxGeometry(3, 8, 3), post); p.position.set(sx, 0, 0); g.add(p); }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(CORRIDOR * 2, 1.4, 1.4), beamMat); g.add(beam); g.userData.beam = beam;
+  } else if (type === "gust") { // wind zone that shoves you sideways (not lethal, but risky)
+    const gm = new THREE.MeshBasicMaterial({ color: 0xdfe9f0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(13, 13, 80, 14, 1, true), gm);
+    g.add(wall); g.userData.wisp = wall;
   } else { // bird flock — a few V shapes
     const bm = new THREE.MeshStandardMaterial({ color: 0x2c2c38, roughness: 0.7 });
     for (let i = 0; i < 4; i++) {
@@ -718,6 +751,24 @@ function placeObstacle(o) {
     o.x = laneX(o.z) + rand(-30, 30); o.baseY = gh + rand(26, 58);
     o.amp = rand(26, 50); o.phase = rand(0, TAU); o.swingSpd = rand(1.6, 2.6);
     o.y = o.baseY; o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "turbine") {
+    o.x = clamp(laneX(o.z) + (Math.random() < 0.5 ? -1 : 1) * rand(20, 60), -CORRIDOR + 24, CORRIDOR - 24);
+    o.towerH = rand(40, 70); o.bladeR = 22; o.hubY = gh + o.towerH; o.spin = rand(1.2, 2.4) * (Math.random() < 0.5 ? 1 : -1);
+    o.grp.userData.tower.scale.set(1, o.towerH, 1); o.grp.userData.tower.position.set(0, o.towerH / 2, 0);
+    o.grp.userData.hub.position.set(0, o.towerH, 1.5);
+    o.grp.position.set(o.x, gh, o.z);
+  } else if (o.type === "rock") {
+    o.x = laneX(o.z) + rand(-26, 26); o.topY = gh + rand(85, 130); o.groundY = gh + 2;
+    o.fallSpd = rand(38, 62); o.phase = rand(0, 1); o.y = o.topY; o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "spinbar") {
+    o.x = laneX(o.z) + rand(-16, 16); o.hubY = gh + rand(30, 58); o.spin = rand(1.0, 1.9) * (Math.random() < 0.5 ? 1 : -1); o.phase = rand(0, TAU);
+    o.grp.position.set(o.x, o.hubY, o.z);
+  } else if (o.type === "laser") {
+    o.x = 0; o.beamY = terrainH(0, o.z) + rand(20, 70); o.period = rand(1.8, 2.8); o.phase = rand(0, TAU);
+    o.grp.userData.beam.position.y = o.beamY; o.grp.position.set(0, 0, o.z);
+  } else if (o.type === "gust") {
+    o.x = laneX(o.z) + rand(-30, 30); o.push = (Math.random() < 0.5 ? -1 : 1) * rand(40, 70); o.r = 14;
+    o.grp.position.set(o.x, terrainH(o.x, o.z) + 36, o.z);
   } else { // bird
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
     o.grp.position.set(o.x, o.y, o.z);
@@ -755,32 +806,34 @@ function buildBarrier() {
 for (let i = 0; i < BARRIER_COUNT; i++) {
   barriers.push({ grp: buildBarrier(), kind: "wall", z: 0, gx: 0, gw: 40, gyLo: 0, gyHi: 0, gh: 36, baseGy: 60, passed: false, gotCoins: false, active: false, move: 0, mphase: 0 });
 }
-let barFarZ = 0, slalomLeft = 0, slalomHigh = false;
+let barFarZ = 0, slalomLeft = 0, slalomHigh = false, spurSide = -1;
 function placeBarrier(b) {
   const dense = 1 - Math.min(save.level, 6) * 0.05;
   const topGy = Math.min(CEILING - 6, 112);
-  // chained slalom: a quick run of walls with alternating high/low gaps
-  if (slalomLeft > 0) {
-    barFarZ += rand(120, 170);
-    slalomLeft--;
-  } else {
+  const canyonZone = curZone.gate === "canyon";
+  // spacing: tight serpentine in canyons, tight runs during slaloms, spaced gap-walls otherwise
+  if (slalomLeft > 0) { barFarZ += rand(120, 170); slalomLeft--; }
+  else if (canyonZone) { barFarZ += rand(120, 200); }
+  else {
     barFarZ += rand(360, 620) * dense;
-    if (save.level >= 2 && curZone.gate !== "canyon" && Math.random() < 0.35) { slalomLeft = 1 + (Math.random() < 0.5 ? 1 : 2); slalomHigh = Math.random() < 0.5; }
+    if (save.level >= 2 && Math.random() < 0.35) { slalomLeft = 1 + (Math.random() < 0.5 ? 1 : 2); slalomHigh = Math.random() < 0.5; }
   }
   if (barFarZ > curLevelLen - 120) { b.active = false; b.grp.visible = false; b.z = 1e7; return; }
   b.z = barFarZ;
 
-  // choose kind from the zone (canyon = narrow full-height channel; wall = gap window)
-  let kind = curZone.gate || "wall";
-  if (kind === "mix") kind = Math.random() < 0.5 ? "wall" : "canyon";
+  // choose kind: canyon zones use alternating side SPURS; otherwise gap-WALLS (mix can roll either)
+  let kind = canyonZone ? "spur" : (curZone.gate === "mix" ? (Math.random() < 0.5 ? "wall" : "spur") : "wall");
   if (slalomActive()) kind = "wall";   // slalom chains are always gap-walls
   b.kind = kind;
 
-  if (kind === "canyon") {
-    const gw = rand(44, 60);
-    const gx = clamp(laneX(b.z) + rand(-46, 46), -CORRIDOR + gw / 2 + 6, CORRIDOR - gw / 2 - 6);
-    b.gx = gx; b.gw = gw; b.gyLo = 0; b.gyHi = WALL_TOP; b.gh = WALL_TOP; b.baseGy = 50; b.move = 0;
-    if (b.grp.userData.mat.color && b.grp.userData.mat.color.setHex) b.grp.userData.mat.color.setHex(0x6b5a44);
+  if (kind === "spur") {
+    spurSide = -spurSide;                       // alternate left/right for a weaving canyon
+    b.side = spurSide;
+    const maxProt = 2 * CORRIDOR - 56;          // always leave a flyable lane
+    b.baseProt = clamp(rand(50, 92 + Math.min(save.level, 8) * 7), 44, maxProt);
+    b.protrude = b.baseProt;
+    b.move = save.level >= 5 ? rand(8, 20) : 0; b.mphase = rand(0, TAU); b.mspd = rand(0.5, 1.0);
+    if (b.grp.userData.mat.color && b.grp.userData.mat.color.setHex) b.grp.userData.mat.color.setHex(0x7a5d3f);
   } else {
     const gw = rand(38, 50), gh = rand(30, 40);
     let gy;
@@ -792,15 +845,31 @@ function placeBarrier(b) {
     if (b.grp.userData.mat.color && b.grp.userData.mat.color.setHex) b.grp.userData.mat.color.setHex(0x7d8794);
   }
   layoutBarrier(b);
-  // place the reward coins in the gap
-  const midY = (b.gyLo + Math.min(b.gyHi, b.gyLo + b.gh)) / 2 || b.baseGy;
-  b.grp.userData.gapCoins.forEach((c, i) => { c.visible = true; c.position.set(b.gx, b.kind === "canyon" ? 46 : midY, (i - 1) * 5); });
+  placeBarrierCoins(b);
   b.active = true; b.passed = false; b.gotCoins = false; b.grp.visible = true;
   b.grp.position.set(0, 0, b.z);
+}
+function spurInnerX(b) { return b.side < 0 ? -CORRIDOR + b.protrude : CORRIDOR - b.protrude; }
+function spurOpenCenter(b) { return b.side < 0 ? (spurInnerX(b) + CORRIDOR) / 2 : (spurInnerX(b) - CORRIDOR) / 2; }
+function placeBarrierCoins(b) {
+  const cx = b.kind === "spur" ? spurOpenCenter(b) : b.gx;
+  const cy = b.kind === "spur" ? 50 : (b.gyLo + b.gyHi) / 2;
+  b.grp.userData.gapCoins.forEach((c, i) => { c.visible = true; c.position.set(cx, cy, (i - 1) * 5); });
 }
 function slalomActive() { return slalomLeft > 0; }
 function layoutBarrier(b) {
   const u = b.grp.userData, D = 4;
+  if (b.kind === "spur") {                       // a rock wall jutting in from one side
+    const inner = spurInnerX(b);
+    const outer = b.side < 0 ? -WALL_HALF : WALL_HALF;
+    const w = Math.abs(inner - outer);
+    u.left.scale.set(Math.max(1, w), WALL_TOP, D); u.left.position.set((inner + outer) / 2, WALL_TOP / 2, 0);
+    u.right.scale.set(0.001, 0.001, 0.001);
+    u.bottom.scale.set(0.001, 0.001, 0.001);
+    u.top.scale.set(0.001, 0.001, 0.001);
+    u.frame.visible = false;
+    return;
+  }
   const gyLo = b.gyLo, gyHi = b.gyHi, gxLo = b.gx - b.gw / 2, gxHi = b.gx + b.gw / 2;
   // left panel (full height)
   u.left.scale.set(gxLo + WALL_HALF, WALL_TOP, D); u.left.position.set((-WALL_HALF + gxLo) / 2, WALL_TOP / 2, 0);
@@ -818,7 +887,7 @@ function layoutBarrier(b) {
     u.frame.position.set(b.gx, (gyLo + gyHi) / 2, 0.3);
   }
 }
-function resetBarriers() { barFarZ = 380; slalomLeft = 0; slalomHigh = false; for (const b of barriers) placeBarrier(b); }
+function resetBarriers() { barFarZ = 380; slalomLeft = 0; slalomHigh = false; spurSide = -1; for (const b of barriers) placeBarrier(b); }
 
 // ---------- Tunnels: a low overpass you must duck UNDER (the inverse of the cabin ceiling) ----------
 const TUN_COUNT = 3;
@@ -858,29 +927,29 @@ function levelLength(n) {
 }
 let curLevelLen = 2200;
 const LEVELS = [
-  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone"], gate: "wall",   tunnel: false },
-  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.5, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon"],       gate: "wall",   tunnel: false },
-  { key: "highl",  name: "Highlands",  sky: 0x8fc0e6, fog: 0xb6d2e6, ground: 0x8fb06a, hs: 0xd2e3f2, hg: 0x5d7a44, amp: 2.6, build: false, fogNear: 300, fogFar: 1050, obs: ["crane", "bird"],         gate: "canyon", tunnel: false },
-  { key: "mesa",   name: "Sunset Mesa",sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9925a, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.7, build: false, fogNear: 340, fogFar: 1150, obs: ["bird", "balloon"],       gate: "canyon", tunnel: false },
-  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.7, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon"],       gate: "mix",    tunnel: false },
-  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.9, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird"],         gate: "wall",   tunnel: true  },
-  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.1, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "pendulum", "drone"], gate: "mix",    tunnel: false },
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, edge: 0x2f7fd6, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone", "spinbar"], gate: "wall",   tunnel: false },
+  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, edge: 0x2f7fd6, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.6, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon", "gust"],           gate: "wall",   tunnel: false },
+  { key: "canyon", name: "Canyon",     sky: 0xe9b27a, fog: 0xf0cfa0, ground: 0xb5713a, edge: 0x5a4a38, hs: 0xffe9cf, hg: 0x7a4a2a, amp: 1.4, build: false, fogNear: 280, fogFar: 1000, obs: ["rock", "bird"],                     gate: "canyon", tunnel: false },
+  { key: "desert", name: "Desert",     sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9a35a, edge: 0xcfa765, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.3, build: false, fogNear: 340, fogFar: 1150, obs: ["turbine", "gust", "rock"],          gate: "wall",   tunnel: false },
+  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, edge: 0x2f7fd6, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.8, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon", "turbine"],       gate: "mix",    tunnel: false },
+  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, edge: 0xbfe0f0, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.6, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird", "rock"],            gate: "wall",   tunnel: true  },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, edge: 0x2f7fd6, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.0, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "drone", "laser", "spinbar"], gate: "mix",    tunnel: false },
 ];
 // Curated campaign: a finite arc of 12 named levels with a finale, then endless beyond it.
 // A trip around the world — each level is a place with its own little story.
 const CAMPAIGN = [
-  { zone: 0, len: 2200, name: "Neo-Tokyo",     story: "Take off through the neon canyons of the future city." },
-  { zone: 1, len: 2500, name: "Aegean Coast",  story: "Skim the whitewashed cliffs above a turquoise sea." },
-  { zone: 4, len: 2800, name: "Emerald Isle",  story: "Low over rolling green hills and stone fences." },
-  { zone: 3, len: 3100, name: "Red Mesa",      story: "Bake across the desert buttes at golden hour." },
-  { zone: 2, len: 3500, name: "Andes Pass",    story: "Climb the thin air of the high mountain passes." },
-  { zone: 6, len: 3800, name: "Gulf Skyline",  story: "Thread a glittering skyline of glass towers." },
-  { zone: 5, len: 4200, name: "Nordic Ice",    story: "Glide the silent blue light of a glacier." },
-  { zone: 1, len: 4700, name: "Amalfi Run",    story: "Hug the long cliffside road above the bay." },
-  { zone: 3, len: 5300, name: "Petra Canyons", story: "Weave the narrow rose-rock channels of the lost city." },
-  { zone: 2, len: 6000, name: "Himalaya",      story: "Cross the roof of the world along the great ridge." },
-  { zone: 0, len: 7000, name: "Manhattan",     story: "A marathon through the original concrete jungle." },
-  { zone: 6, len: 9000, name: "Cloud Nine",    story: "FINALE — break through the clouds to the summit of the sky." },
+  { zone: 0, len: 2200, name: "Neo-Tokyo",      story: "Take off through the neon canyons of the future city." },
+  { zone: 3, len: 2500, name: "Mojave Wind Farm", story: "Skim a desert of spinning turbines and dust-devils." },
+  { zone: 1, len: 2800, name: "Aegean Coast",   story: "Hug whitewashed cliffs above a turquoise sea." },
+  { zone: 2, len: 3100, name: "Petra Canyons",  story: "Weave the rose-rock walls of the lost city." },
+  { zone: 4, len: 3500, name: "Dutch Lowlands", story: "Low over green fields dotted with windmills." },
+  { zone: 6, len: 3900, name: "Gulf Skyline",   story: "Thread a glittering skyline of glass towers." },
+  { zone: 5, len: 4300, name: "Nordic Ice",     story: "Glide the silent blue light of a glacier." },
+  { zone: 1, len: 4800, name: "Amalfi Run",     story: "Race the long cliffside road above the bay." },
+  { zone: 2, len: 5400, name: "Grand Canyon",   story: "Serpentine the deepest red-rock gorge of all." },
+  { zone: 3, len: 6200, name: "Sahara",         story: "Cross an endless dune sea under a blazing sun." },
+  { zone: 0, len: 7200, name: "Manhattan",      story: "A marathon through the original concrete jungle." },
+  { zone: 6, len: 9000, name: "Cloud Nine",     story: "FINALE — break through the clouds to the summit of the sky." },
 ];
 const CAMPAIGN_LEN = CAMPAIGN.length;
 function zoneForLevel(n) {
@@ -895,6 +964,7 @@ function applyZone(z) {
   setColorHex(scene.background, z.sky);
   if (scene.fog) { setColorHex(scene.fog.color, z.fog); scene.fog.near = z.fogNear * qFog; scene.fog.far = z.fogFar * qFog; }
   setColorHex(terrainMat.color, z.ground);
+  setColorHex(seaMat.color, z.edge || 0x2f7fd6);   // flanks: water, sand, rock or ice per zone
   setColorHex(hemi.color, z.hs);
   setColorHex(hemi.groundColor, z.hg);
 }
@@ -1356,6 +1426,45 @@ function updateFlight(dt) {
       const e = dx * dx + dy * dy + dz * dz;
       if (e < (3.4 + PH) * (3.4 + PH)) { crash(); }
       else if (!o.near && e < 90) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "turbine") { // spinning blades — go around, over, or under the disc
+      if (o.grp.userData.hub) o.grp.userData.hub.rotation.z += o.spin * dt;
+      if (Math.abs(pos.x - o.x) < 2.6 && Math.abs(pos.z - o.z) < 2.6 + PH && pos.y < o.hubY) crash(); // tower
+      if (Math.abs(pos.z - o.z) < 2 + PH) {
+        const dx = pos.x - o.x, dy = pos.y - o.hubY, d2 = dx * dx + dy * dy;
+        if (d2 < (o.bladeR + PH * 0.4) * (o.bladeR + PH * 0.4)) crash();
+        else if (!o.near && d2 < (o.bladeR + 9) * (o.bladeR + 9)) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+      }
+    } else if (o.type === "rock") { // boulder dropping on a cycle
+      const dist = o.topY - o.groundY;
+      const yy = o.topY - (((flightTime * o.fallSpd) + o.phase * dist) % dist);
+      o.grp.position.set(o.x, yy, o.z); o.grp.rotation.x += dt * 2; o.grp.rotation.z += dt * 1.5;
+      const dx = pos.x - o.x, dy = pos.y - yy, dz = pos.z - o.z;
+      const e = dx * dx + dy * dy + dz * dz;
+      if (e < (3.4 + PH) * (3.4 + PH)) crash();
+      else if (!o.near && e < 80) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "spinbar") { // bar sweeps the lane — time your pass
+      const th = flightTime * o.spin + o.phase;
+      if (o.grp.userData.bar) o.grp.userData.bar.rotation.z = th;
+      if (Math.abs(pos.z - o.z) < 2 + PH) {
+        const rx = pos.x - o.x, ry = pos.y - o.hubY;
+        const perp = Math.abs(ry * Math.cos(th) - rx * Math.sin(th));
+        const along = Math.abs(rx * Math.cos(th) + ry * Math.sin(th));
+        if (perp < 1.4 + PH && along < 32) crash();
+        else if (!o.near && perp < 6 && along < 32) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+      }
+    } else if (o.type === "laser") { // beam blinks on and off — pass while it's down
+      const cyc = (flightTime + o.phase * o.period) % o.period;
+      const on = cyc > o.period * 0.45;
+      const beam = o.grp.userData.beam;
+      if (beam && beam.material) beam.material.opacity = on ? 0.95 : (cyc > o.period * 0.32 ? 0.5 : 0.12); // telegraph
+      if (on && Math.abs(pos.z - o.z) < 2 + PH && Math.abs(pos.y - o.beamY) < 2.2 + PH * 0.4) crash();
+    } else if (o.type === "gust") { // sideways wind — shoves you (mind the sea/walls!)
+      const dx = pos.x - o.x, dz = pos.z - o.z;
+      if (o.grp.userData.wisp) o.grp.userData.wisp.rotation.y += dt * 1.5;
+      if (dx * dx + dz * dz < o.r * o.r) {
+        vel.x += o.push * dt;
+        if (Math.random() < 0.25) spawnBurst(pos.x - Math.sign(o.push) * 4, pos.y, pos.z, 0xdfe9f0, 1, 8, 0.5);
+      }
     } else { // crane — vertical mast + horizontal jib
       const ca = Math.cos(o.armRot), sa = Math.sin(o.armRot);
       // mast collision
@@ -1373,30 +1482,47 @@ function updateFlight(dt) {
     if (b.active) {
       const gc = b.grp.userData.gapCoins;
       if (b.move) {
-        const gy = b.baseGy + Math.sin(flightTime * 0.8 + b.mphase) * b.move;
-        b.gyLo = gy - b.gh / 2; b.gyHi = gy + b.gh / 2; layoutBarrier(b);
-        gc.forEach(c => { if (c.visible) c.position.y = gy; });
+        if (b.kind === "spur") {
+          b.protrude = clamp(b.baseProt + Math.sin(flightTime * b.mspd + b.mphase) * b.move, 40, 2 * CORRIDOR - 56);
+          layoutBarrier(b);
+          const oc = spurOpenCenter(b); gc.forEach(c => { if (c.visible) c.position.x = oc; });
+        } else {
+          const gy = b.baseGy + Math.sin(flightTime * 0.8 + b.mphase) * b.move;
+          b.gyLo = gy - b.gh / 2; b.gyHi = gy + b.gh / 2; layoutBarrier(b);
+          gc.forEach(c => { if (c.visible) c.position.y = gy; });
+        }
       }
       for (const c of gc) if (c.visible) c.rotation.z += dt * 3;
-      // collect the gap coins (sit them right on the risky line)
+      // collect the reward coins (they sit on the risky line)
       if (!b.gotCoins && Math.abs(pos.z - b.z) < 8) {
-        const midY = b.kind === "canyon" ? 46 : (b.gyLo + b.gyHi) / 2;
-        if (Math.abs(pos.x - b.gx) < 6 && Math.abs(pos.y - midY) < 8) {
+        const cx = b.kind === "spur" ? spurOpenCenter(b) : b.gx;
+        const cyOK = b.kind === "spur" ? Math.abs(pos.y - 50) < 34 : Math.abs(pos.y - (b.gyLo + b.gyHi) / 2) < 8;
+        if (Math.abs(pos.x - cx) < 8 && cyOK) {
           b.gotCoins = true; gc.forEach(c => c.visible = false);
           const val = Math.round((1 + lvl("mult") * 0.5) * comboMult * perkCoin()) * 3;
           runCoins += val; runCoinPickups += 3; spawnBurst(pos.x, pos.y, pos.z, 0xffd454, 6, 12); Sound.coin();
         }
       }
       if (Math.abs(pos.z - b.z) < 3 + PH) {
-        const inGap = Math.abs(pos.x - b.gx) < b.gw / 2 - PH * 0.6 && pos.y > b.gyLo + PH * 0.6 && pos.y < b.gyHi - PH * 0.6;
-        if (!inGap) { crash(); }
-        else if (!b.passed) {
-          b.passed = true;
-          const tight = b.kind === "canyon" ? 1 : clamp(1.6 - b.gw / 50, 0.4, 1.4); // tighter gap = bigger reward
-          comboMult = Math.min(comboMult + 0.6 + tight * 0.4, 6);
-          runCoins += Math.round(8 * comboMult * (1 + tight));
-          spawnBurst(pos.x, pos.y, pos.z, 0x49e0ff, 14, 18);
-          goalBanner((b.kind === "canyon" ? "CANYON RUN ×" : "THREADED ×") + comboMult.toFixed(1)); Sound.ring(); haptic(18);
+        if (b.kind === "spur") {
+          const inner = spurInnerX(b);
+          const blocked = b.side < 0 ? pos.x < inner + PH : pos.x > inner - PH;
+          if (blocked) crash();
+          else if (!b.passed) {
+            b.passed = true; comboMult = Math.min(comboMult + 0.7, 6); runCoins += Math.round(8 * comboMult);
+            spawnBurst(pos.x, pos.y, pos.z, 0xffcf94, 12, 16); goalBanner("CANYON ×" + comboMult.toFixed(1)); Sound.ring(); haptic(16);
+          }
+        } else {
+          const inGap = Math.abs(pos.x - b.gx) < b.gw / 2 - PH * 0.6 && pos.y > b.gyLo + PH * 0.6 && pos.y < b.gyHi - PH * 0.6;
+          if (!inGap) { crash(); }
+          else if (!b.passed) {
+            b.passed = true;
+            const tight = clamp(1.6 - b.gw / 50, 0.4, 1.4);
+            comboMult = Math.min(comboMult + 0.6 + tight * 0.4, 6);
+            runCoins += Math.round(8 * comboMult * (1 + tight));
+            spawnBurst(pos.x, pos.y, pos.z, 0x49e0ff, 14, 18);
+            goalBanner("THREADED ×" + comboMult.toFixed(1)); Sound.ring(); haptic(18);
+          }
         }
       }
     }
