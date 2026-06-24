@@ -1309,11 +1309,11 @@ function launch(power, launchPitch, launchYaw) {
   pitch = launchPitch; yaw = launchYaw || 0;
   const f = forwardVec(new THREE.Vector3());
   vel.copy(f).multiplyScalar(speed);
-  // catapult fling: band recoil, smoke + sparks off the rig, and a kick of camera shake
-  launchAnimT = 0.35; shakeT = Math.max(shakeT, 0.4);
+  // catapult fling: band recoil, smoke + sparks off the rig (no camera shake on launch)
+  launchAnimT = 0.35;
   spawnBurst(0, terrainH(0, 6) + 2, 5, 0xdfe7ee, 16, 16, rand(0.8, 1.6));
   spawnBurst(0, terrainH(0, 6) + 3, 4, 0xffd27a, 10, 22, 0.6);
-  Sound.boost(); haptic(30);
+  Sound.boost();
   hideArc();
   state = "flight";
   hud.classList.remove("hidden");
