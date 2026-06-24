@@ -560,7 +560,7 @@ function applyPower(type) {
 
 // ---------- Particle / debris pool ----------
 const partGeo = new THREE.BoxGeometry(1, 1, 1);
-const PART_COUNT = 70;
+const PART_COUNT = 170;
 const parts = [];
 for (let i = 0; i < PART_COUNT; i++) {
   const m = new THREE.Mesh(partGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true }));
@@ -577,6 +577,21 @@ function spawnBurst(x, y, z, color, count, speed, size) {
     p.m.position.set(x, y, z); p.m.visible = true; p.m.material.opacity = 1;
     const a = rand(0, TAU), sp = speed || rand(8, 26);
     p.vx = Math.cos(a) * sp; p.vy = rand(2, 1) + Math.abs(rand(2, 18)); p.vz = Math.sin(a) * sp;
+  }
+}
+// A proper firework: a big colorful sphere of sparks (two colors) that arc and fall, plus a flash.
+function spawnFirework(x, y, z) {
+  const palette = [0xff5b8a, 0xffd454, 0x49e0ff, 0x7dffb0, 0xff8a2a, 0xc79bff, 0xffffff];
+  const cA = choice(palette), cB = choice(palette), n = 44;
+  for (let i = 0; i < n; i++) {
+    const p = parts[partCursor]; partCursor = (partCursor + 1) % PART_COUNT;
+    p.active = true; p.life = p.max = rand(0.9, 1.7);
+    if (p.m.material.color && p.m.material.color.setHex) p.m.material.color.setHex(i % 5 === 0 ? 0xffffff : (i % 2 ? cA : cB));
+    const s = rand(0.6, 1.3); p.m.scale.set(s, s, s);
+    p.m.position.set(x, y, z); p.m.visible = true; p.m.material.opacity = 1;
+    // even spherical spray so it reads as a starburst
+    const a = rand(0, TAU), e = Math.acos(rand(-1, 1)), sp = rand(28, 62);
+    p.vx = Math.sin(e) * Math.cos(a) * sp; p.vy = Math.cos(e) * sp + 8; p.vz = Math.sin(e) * Math.sin(a) * sp;
   }
 }
 function updateParts(dt) {
@@ -626,10 +641,12 @@ function placeThermal(t) {
 function resetThermals() { thermalFarZ = 220; for (const t of thermals) placeThermal(t); }
 
 // ---------- Obstacles (blimps, cranes, birds, rising balloons, swinging pendulums) ----------
-const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone", "turbine", "rock", "spinbar", "laser", "gust", "tornado", "geyser", "cablecar", "firework", "raptor", "debris"];
+const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone", "turbine", "rock", "spinbar", "laser", "gust", "tornado", "geyser", "cablecar", "firework", "raptor", "debris", "lightning", "avalanche", "mine", "log", "billboard", "sandstorm", "waterfall"];
 const obstacles = [];
 const PEND_ARM = 24;
-const OBS_COUNT = 24;
+const OBS_COUNT = 32;
+// corridor-spanning wall dimensions (also used by sandstorm/waterfall side panels)
+const WALL_HALF = CORRIDOR + 12, WALL_TOP = 200;   // walls reach above the cabin ceiling -> must use the gap
 function buildObstacle(type) {
   const g = new THREE.Group();
   if (type === "blimp") {
@@ -719,10 +736,12 @@ function buildObstacle(type) {
     const cable = new THREE.Mesh(new THREE.BoxGeometry(CORRIDOR * 2, 0.8, 0.8), steel); g.add(cable); g.userData.cable = cable;
     const car = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 6), new THREE.MeshStandardMaterial({ color: 0xd23b3b }));
     g.add(car); g.userData.car = car;
-  } else if (type === "firework") { // shell that bursts on a timer
+  } else if (type === "firework") { // shell that rises then bursts on a timer
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.4, 3, 1.4), new THREE.MeshStandardMaterial({ color: 0x33363d }));
     tube.position.y = 1.5; g.add(tube);
-    const burst = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff5b8a, transparent: true, opacity: 0.85 }));
+    const rocket = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff3b0 }));
+    rocket.visible = false; g.add(rocket); g.userData.rocket = rocket;
+    const burst = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.85, depthWrite: false }));
     burst.visible = false; g.add(burst); g.userData.burst = burst;
   } else if (type === "raptor") { // big bird that swoops toward you
     const rm = new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.7 });
@@ -731,6 +750,42 @@ function buildObstacle(type) {
   } else if (type === "debris") { // tumbling chunk cluster to weave
     const dm = new THREE.MeshStandardMaterial({ color: 0x808892, roughness: 0.9 });
     for (let i = 0; i < 5; i++) { const c = new THREE.Mesh(new THREE.SphereGeometry(rand(1.6, 3), 7, 6), dm); c.position.set(rand(-5, 5), rand(-5, 5), rand(-5, 5)); g.add(c); }
+  } else if (type === "lightning") { // storm cloud that strikes a bolt down a column
+    const cm = new THREE.MeshStandardMaterial({ color: 0x47506a, roughness: 0.9 });
+    const cloud = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), cm); cloud.scale.set(13, 5, 9); g.add(cloud);
+    const bolt = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 2), new THREE.MeshBasicMaterial({ color: 0xbfe6ff }));
+    bolt.visible = false; g.add(bolt); g.userData.bolt = bolt;
+  } else if (type === "avalanche") { // snow wall sweeping across the lane
+    const sm = new THREE.MeshStandardMaterial({ color: 0xeaf2f7, roughness: 0.9 });
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(42, 1, 8), sm); g.add(wall); g.userData.wall = wall;
+  } else if (type === "mine") { // floating spiked mine
+    const mm = new THREE.MeshStandardMaterial({ color: 0x2a2f36, metalness: 0.5, roughness: 0.6 });
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(3, 12, 10), mm));
+    for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(0.7, 2, 6), new THREE.MeshStandardMaterial({ color: 0x8a2020 }));
+      sp.position.set(d[0] * 3.6, d[1] * 3.6, d[2] * 3.6); g.add(sp);
+    }
+  } else if (type === "log") { // log swinging on ropes across the lane
+    const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.85 });
+    const swing = new THREE.Group();
+    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.3, PEND_ARM, 0.3), new THREE.MeshStandardMaterial({ color: 0x3a2e1f })); rope.position.y = -PEND_ARM / 2; swing.add(rope);
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 12, 10), wood); log.rotation.x = Math.PI / 2; log.position.y = -PEND_ARM; swing.add(log);
+    g.add(swing); g.userData.swing = swing;
+  } else if (type === "billboard") { // sign panel sliding across
+    const post = new THREE.MeshStandardMaterial({ color: 0x444a55 });
+    for (const sx of [-7, 7]) { const p = new THREE.Mesh(new THREE.BoxGeometry(1, 16, 1), post); p.position.set(sx, -8, 0); g.add(p); }
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(20, 11, 1), new THREE.MeshStandardMaterial({ color: 0xdd4488, emissive: 0x441022, emissiveIntensity: 0.4 }));
+    g.add(panel); g.userData.panel = panel;
+  } else if (type === "sandstorm") { // dust wall with a sliding open gap
+    const dm = new THREE.MeshBasicMaterial({ color: 0xcaa86a, transparent: true, opacity: 0.55, depthWrite: false });
+    const left = new THREE.Mesh(new THREE.BoxGeometry(1, WALL_TOP, 4), dm);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(1, WALL_TOP, 4), dm);
+    g.add(left, right); g.userData.left = left; g.userData.right = right;
+  } else if (type === "waterfall") { // water curtain with a gap; pushes you down
+    const wm = new THREE.MeshBasicMaterial({ color: 0x6fc3ff, transparent: true, opacity: 0.5, depthWrite: false });
+    const left = new THREE.Mesh(new THREE.BoxGeometry(1, WALL_TOP, 3), wm);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(1, WALL_TOP, 3), wm);
+    g.add(left, right); g.userData.left = left; g.userData.right = right;
   } else { // bird flock — a few V shapes
     const bm = new THREE.MeshStandardMaterial({ color: 0x2c2c38, roughness: 0.7 });
     for (let i = 0; i < 4; i++) {
@@ -747,6 +802,15 @@ for (let i = 0; i < OBS_COUNT; i++) {
 }
 let obsFarZ = 0;
 const OBS_START_Z = 520; // hazards begin once you're flying well
+// lay out a two-panel barrier (sandstorm / waterfall) leaving an open gap of width gw centred at gapX
+function sideGapLayout(o, gapX, gw) {
+  const u = o.grp.userData;
+  const lEdge = gapX - gw / 2, rEdge = gapX + gw / 2;
+  const lw = Math.max(1, lEdge - (-WALL_HALF));
+  u.left.scale.x = lw; u.left.position.set((-WALL_HALF + lEdge) / 2, WALL_TOP / 2, 0);
+  const rw = Math.max(1, WALL_HALF - rEdge);
+  u.right.scale.x = rw; u.right.position.set((rEdge + WALL_HALF) / 2, WALL_TOP / 2, 0);
+}
 function placeObstacle(o) {
   // per-zone hazard mix: only the obstacle types this zone uses are active
   if (!curZone.obs || curZone.obs.indexOf(o.type) < 0) { o.active = false; o.grp.visible = false; o.z = 1e7; return; }
@@ -817,6 +881,28 @@ function placeObstacle(o) {
   } else if (o.type === "debris") {
     o.x = laneX(o.z) + rand(-34, 34); o.y = gh + rand(30, 72); o.drift = rand(-8, 8); o.r = 7;
     o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "lightning") {
+    o.x = laneX(o.z) + rand(-30, 30); o.cloudY = gh + rand(82, 108); o.period = rand(2.6, 3.8); o.phase = rand(0, 1);
+    const bh = o.cloudY - gh; o.grp.userData.bolt.scale.set(1, bh, 1); o.grp.userData.bolt.position.y = -bh / 2;
+    o.grp.position.set(o.x, o.cloudY, o.z);
+  } else if (o.type === "avalanche") {
+    o.spd = rand(0.5, 0.9); o.phase = rand(0, TAU); o.wallTop = gh + rand(40, 66);
+    o.grp.userData.wall.scale.set(1, o.wallTop - gh, 1); o.grp.userData.wall.position.y = (o.wallTop - gh) / 2;
+    o.grp.position.set(0, gh, o.z);
+  } else if (o.type === "mine") {
+    o.x = laneX(o.z) + rand(-34, 34); o.y = gh + rand(28, 64); o.phase = rand(0, TAU); o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "log") {
+    o.x = laneX(o.z) + rand(-16, 16); o.pivotY = gh + PEND_ARM + rand(20, 36); o.amp = rand(0.7, 1.05); o.phase = rand(0, TAU); o.swingSpd = rand(0.9, 1.5);
+    o.grp.position.set(o.x, o.pivotY, o.z);
+  } else if (o.type === "billboard") {
+    o.x = 0; o.panelY = terrainH(0, o.z) + rand(28, 60); o.spd = rand(0.5, 1.0); o.phase = rand(0, TAU);
+    o.grp.position.set(0, o.panelY, o.z);
+  } else if (o.type === "sandstorm") {
+    o.gw = rand(48, 62); o.spd = rand(0.4, 0.8); o.phase = rand(0, TAU); o.gapX = 0;
+    o.grp.position.set(0, terrainH(0, o.z), o.z); sideGapLayout(o, 0, o.gw);
+  } else if (o.type === "waterfall") {
+    o.gw = rand(44, 58); o.gapX = clamp(laneX(o.z) + rand(-26, 26), -CORRIDOR + o.gw / 2 + 6, CORRIDOR - o.gw / 2 - 6);
+    o.grp.position.set(0, terrainH(0, o.z), o.z); sideGapLayout(o, o.gapX, o.gw);
   } else { // bird
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
     o.grp.position.set(o.x, o.y, o.z);
@@ -827,7 +913,7 @@ function resetObstacles() { obsFarZ = OBS_START_Z; for (const o of obstacles) pl
 
 // ---------- Barriers: walls across the corridor with a single gap you must thread ----------
 // You have to line up BOTH your altitude and your lateral position with the gap, or you crash.
-const WALL_HALF = CORRIDOR + 12, WALL_TOP = 200;   // walls reach above the cabin ceiling -> must use the gap
+// (WALL_HALF / WALL_TOP are declared above, near the obstacle pool, so sandstorm/waterfall can use them.)
 const BARRIER_COUNT = 6;
 const barriers = [];
 const barrierCoinGeo = new THREE.TorusGeometry(1.4, 0.5, 8, 16);
@@ -975,13 +1061,13 @@ function levelLength(n) {
 }
 let curLevelLen = 2200;
 const LEVELS = [
-  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, edge: 0x2f7fd6, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone", "spinbar", "firework"], gate: "wall",   tunnel: false },
-  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, edge: 0x2f7fd6, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.6, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon", "gust", "cablecar"],     gate: "wall",   tunnel: false },
-  { key: "canyon", name: "Canyon",     sky: 0xe9b27a, fog: 0xf0cfa0, ground: 0xb5713a, edge: 0x5a4a38, hs: 0xffe9cf, hg: 0x7a4a2a, amp: 1.4, build: false, fogNear: 280, fogFar: 1000, obs: ["rock", "bird", "raptor"],               gate: "canyon", tunnel: false },
-  { key: "desert", name: "Desert",     sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9a35a, edge: 0xcfa765, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.3, build: false, fogNear: 340, fogFar: 1150, obs: ["turbine", "gust", "rock", "tornado"],    gate: "wall",   tunnel: false },
-  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, edge: 0x2f7fd6, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.8, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon", "turbine"],            gate: "mix",    tunnel: false },
-  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, edge: 0xbfe0f0, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.6, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird", "rock", "geyser"],         gate: "wall",   tunnel: true  },
-  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, edge: 0x2f7fd6, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.0, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "drone", "laser", "spinbar", "debris", "cablecar"], gate: "mix", tunnel: false },
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, edge: 0x2f7fd6, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone", "spinbar", "firework", "billboard"], gate: "wall",   tunnel: false },
+  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, edge: 0x2f7fd6, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.6, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon", "gust", "cablecar", "mine", "waterfall"],     gate: "wall",   tunnel: false },
+  { key: "canyon", name: "Canyon",     sky: 0xe9b27a, fog: 0xf0cfa0, ground: 0xb5713a, edge: 0x5a4a38, hs: 0xffe9cf, hg: 0x7a4a2a, amp: 1.4, build: false, fogNear: 280, fogFar: 1000, obs: ["rock", "bird", "raptor", "log", "waterfall"],               gate: "canyon", tunnel: false },
+  { key: "desert", name: "Desert",     sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9a35a, edge: 0xcfa765, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.3, build: false, fogNear: 340, fogFar: 1150, obs: ["turbine", "gust", "rock", "tornado", "sandstorm"],    gate: "wall",   tunnel: false },
+  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, edge: 0x2f7fd6, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.8, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon", "turbine", "log"],            gate: "mix",    tunnel: false },
+  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, edge: 0xbfe0f0, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.6, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird", "rock", "geyser", "avalanche", "lightning"],         gate: "wall",   tunnel: true  },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, edge: 0x2f7fd6, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.0, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "drone", "laser", "spinbar", "debris", "cablecar", "lightning"], gate: "mix", tunnel: false },
 ];
 // Curated campaign: a finite arc of 12 named levels with a finale, then endless beyond it.
 // A trip around the world — each level is a place with its own little story.
@@ -1536,12 +1622,22 @@ function updateFlight(dt) {
         const dx = pos.x - gx, dy = pos.y - (o.cableY - 2);
         if (dx * dx + dy * dy < (4 + PH) * (4 + PH)) crash();
       }
-    } else if (o.type === "firework") { // bursts on a timer — pass between blasts
+    } else if (o.type === "firework") { // rocket rises, then a big colorful burst — pass between blasts
       const cyc = (flightTime + o.phase * o.period) % o.period;
-      const bursting = cyc < 0.4, burst = o.grp.userData.burst;
-      if (burst) { burst.visible = cyc < 0.55; const s = bursting ? o.r * (cyc / 0.4) : 0.6; burst.scale.set(s, s, s); }
-      if (bursting) {
-        const dx = pos.x - o.x, dy = pos.y - o.by, dz = pos.z - o.z, rr = o.r * Math.max(0.35, cyc / 0.4);
+      const fuse = o.period - 0.45, burst = o.grp.userData.burst, rocket = o.grp.userData.rocket;
+      const gh2 = terrainH(o.x, o.z);
+      if (cyc < fuse) {                          // fuse: the shell climbs, trailing sparks
+        const fr = cyc / fuse;
+        if (rocket) { rocket.visible = true; rocket.position.set(0, (o.by - gh2) * fr, 0); }
+        if (burst) burst.visible = false;
+        o.fired = false;
+        if (Math.random() < 0.4) spawnBurst(o.x, gh2 + (o.by - gh2) * fr, o.z, 0xfff3b0, 1, 6, 0.5);
+      } else {                                   // burst window (lethal)
+        if (rocket) rocket.visible = false;
+        const bf = (cyc - fuse) / 0.45;
+        if (!o.fired) { spawnFirework(o.x, o.by, o.z); Sound.crash(); shakeT = Math.max(shakeT, 0.2); o.fired = true; }
+        if (burst) { burst.visible = bf < 0.6; const s = o.r * (0.4 + bf); burst.position.set(0, o.by - gh2, 0); burst.scale.set(s, s, s); burst.material.opacity = (1 - bf) * 0.7; }
+        const dx = pos.x - o.x, dy = pos.y - o.by, dz = pos.z - o.z, rr = o.r * (0.5 + bf * 0.7);
         if (dx * dx + dy * dy + dz * dz < rr * rr) crash();
       }
     } else if (o.type === "raptor") { // swoops toward you, homing in
@@ -1554,6 +1650,46 @@ function updateFlight(dt) {
       o.x += o.drift * dt; o.grp.position.x = o.x; o.grp.rotation.x += dt * 1.2; o.grp.rotation.y += dt * 0.9;
       const dx = pos.x - o.x, dy = pos.y - o.y, dz = pos.z - o.z, e = dx * dx + dy * dy + dz * dz;
       if (e < (o.r + PH) * (o.r + PH)) crash(); else if (!o.near && e < (o.r + 8) * (o.r + 8)) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "lightning") { // storm cloud strikes a bolt down a column on a timer
+      const cyc = (flightTime + o.phase * o.period) % o.period;
+      const strike = cyc < 0.45, bolt = o.grp.userData.bolt;
+      if (bolt) { bolt.visible = strike; if (strike) bolt.position.x = rand(-1.6, 1.6); }
+      if (strike && cyc > 0.08 && Math.abs(pos.x - o.x) < 4 + PH && Math.abs(pos.z - o.z) < 3 + PH && pos.y < o.cloudY) crash();
+      else if (!o.near && Math.abs(pos.x - o.x) < 9 && Math.abs(pos.z - o.z) < 9) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "avalanche") { // snow wall sweeps across the lane — time the gap behind it
+      const wx = Math.sin(flightTime * o.spd + o.phase) * (CORRIDOR - 8);
+      if (o.grp.userData.wall) o.grp.userData.wall.position.x = wx;
+      if (Math.abs(pos.z - o.z) < 4 + PH && Math.abs(pos.x - wx) < 21 + PH && pos.y < o.wallTop) crash();
+      else if (!o.near && Math.abs(pos.z - o.z) < 10 && Math.abs(pos.x - wx) < 28) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "mine") { // floating spiked mine, bobbing
+      const my = o.y + Math.sin(flightTime * 1.2 + o.phase) * 4;
+      o.grp.position.y = my; o.grp.rotation.y += dt * 0.6;
+      const dx = pos.x - o.x, dy = pos.y - my, dz = pos.z - o.z, e = dx * dx + dy * dy + dz * dz;
+      if (e < (4 + PH) * (4 + PH)) crash(); else if (!o.near && e < 90) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "log") { // log swinging on ropes across the lane
+      const th = Math.sin(flightTime * o.swingSpd + o.phase) * o.amp;
+      if (o.grp.userData.swing) o.grp.userData.swing.rotation.z = th;
+      const bx = o.x + Math.sin(th) * PEND_ARM, by = o.pivotY - Math.cos(th) * PEND_ARM;
+      const dx = pos.x - bx, dy = pos.y - by, dz = pos.z - o.z;
+      if (Math.abs(dz) < 6 + PH && dx * dx + dy * dy < (2.4 + PH) * (2.4 + PH)) crash();
+      else if (!o.near && Math.abs(dz) < 10 && dx * dx + dy * dy < 64) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "billboard") { // lit sign panel sliding across the lane
+      const px = Math.sin(flightTime * o.spd + o.phase) * (CORRIDOR - 14);
+      if (o.grp.userData.panel) o.grp.userData.panel.position.x = px;
+      if (Math.abs(pos.z - o.z) < 2 + PH && Math.abs(pos.x - px) < 10 + PH && Math.abs(pos.y - o.panelY) < 5.5 + PH * 0.4) crash();
+      else if (!o.near && Math.abs(pos.z - o.z) < 8 && Math.abs(pos.x - px) < 16 && Math.abs(pos.y - o.panelY) < 9) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "sandstorm") { // dust wall with a sliding open gap — thread it
+      o.gapX = Math.sin(flightTime * o.spd + o.phase) * (CORRIDOR - o.gw / 2 - 6);
+      sideGapLayout(o, o.gapX, o.gw);
+      if (Math.abs(pos.z - o.z) < 2 + PH) {
+        if (Math.abs(pos.x - o.gapX) > o.gw / 2) crash();
+        else if (Math.random() < 0.2) spawnBurst(pos.x, pos.y, pos.z, 0xcaa86a, 1, 8, 0.6);
+      }
+    } else if (o.type === "waterfall") { // water curtain with a gap; the gap pours you downward
+      if (Math.abs(pos.z - o.z) < 2 + PH) {
+        if (Math.abs(pos.x - o.gapX) > o.gw / 2) crash();
+        else { vel.y -= 26 * dt; if (Math.random() < 0.25) spawnBurst(pos.x, pos.y, pos.z, 0x6fc3ff, 1, 10, 0.5); }
+      }
     } else { // crane — vertical mast + horizontal jib
       const ca = Math.cos(o.armRot), sa = Math.sin(o.armRot);
       // mast collision
