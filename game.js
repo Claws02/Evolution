@@ -626,10 +626,10 @@ function placeThermal(t) {
 function resetThermals() { thermalFarZ = 220; for (const t of thermals) placeThermal(t); }
 
 // ---------- Obstacles (blimps, cranes, birds, rising balloons, swinging pendulums) ----------
-const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone", "turbine", "rock", "spinbar", "laser", "gust"];
+const OBS_TYPES = ["blimp", "crane", "bird", "balloon", "pendulum", "drone", "turbine", "rock", "spinbar", "laser", "gust", "tornado", "geyser", "cablecar", "firework", "raptor", "debris"];
 const obstacles = [];
 const PEND_ARM = 24;
-const OBS_COUNT = 18;
+const OBS_COUNT = 24;
 function buildObstacle(type) {
   const g = new THREE.Group();
   if (type === "blimp") {
@@ -704,6 +704,33 @@ function buildObstacle(type) {
     const gm = new THREE.MeshBasicMaterial({ color: 0xdfe9f0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
     const wall = new THREE.Mesh(new THREE.CylinderGeometry(13, 13, 80, 14, 1, true), gm);
     g.add(wall); g.userData.wisp = wall;
+  } else if (type === "tornado") { // dust devil that drags you toward its core
+    const tm = new THREE.MeshBasicMaterial({ color: 0xb59668, transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide });
+    const cone = new THREE.Mesh(new THREE.CylinderGeometry(4, 14, 90, 14, 1, true), tm);
+    cone.position.y = 45; g.add(cone); g.userData.swirl = cone;
+  } else if (type === "geyser") { // erupts a column upward on a timer
+    const rockM = new THREE.MeshStandardMaterial({ color: 0x5a6470, roughness: 0.9 });
+    const vent = new THREE.Mesh(new THREE.CylinderGeometry(4, 5.5, 3, 12), rockM); vent.position.y = 1.5; g.add(vent);
+    const colM = new THREE.MeshBasicMaterial({ color: 0xdff2ff, transparent: true, opacity: 0.6, depthWrite: false });
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.6, 1, 12), colM); col.visible = false; g.add(col); g.userData.col = col;
+  } else if (type === "cablecar") { // a cable across the lane with a sliding gondola
+    const steel = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.5, roughness: 0.5 });
+    for (const sx of [-CORRIDOR, CORRIDOR]) { const p = new THREE.Mesh(new THREE.BoxGeometry(3, 80, 3), steel); p.position.set(sx, 40, 0); g.add(p); }
+    const cable = new THREE.Mesh(new THREE.BoxGeometry(CORRIDOR * 2, 0.8, 0.8), steel); g.add(cable); g.userData.cable = cable;
+    const car = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 6), new THREE.MeshStandardMaterial({ color: 0xd23b3b }));
+    g.add(car); g.userData.car = car;
+  } else if (type === "firework") { // shell that bursts on a timer
+    const tube = new THREE.Mesh(new THREE.BoxGeometry(1.4, 3, 1.4), new THREE.MeshStandardMaterial({ color: 0x33363d }));
+    tube.position.y = 1.5; g.add(tube);
+    const burst = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff5b8a, transparent: true, opacity: 0.85 }));
+    burst.visible = false; g.add(burst); g.userData.burst = burst;
+  } else if (type === "raptor") { // big bird that swoops toward you
+    const rm = new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.7 });
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), rm));
+    for (const sx of [-1, 1]) { const w = new THREE.Mesh(new THREE.ConeGeometry(1.3, 6, 4), rm); w.rotation.z = sx * Math.PI / 2; w.position.x = sx * 3; g.add(w); }
+  } else if (type === "debris") { // tumbling chunk cluster to weave
+    const dm = new THREE.MeshStandardMaterial({ color: 0x808892, roughness: 0.9 });
+    for (let i = 0; i < 5; i++) { const c = new THREE.Mesh(new THREE.SphereGeometry(rand(1.6, 3), 7, 6), dm); c.position.set(rand(-5, 5), rand(-5, 5), rand(-5, 5)); g.add(c); }
   } else { // bird flock — a few V shapes
     const bm = new THREE.MeshStandardMaterial({ color: 0x2c2c38, roughness: 0.7 });
     for (let i = 0; i < 4; i++) {
@@ -769,6 +796,27 @@ function placeObstacle(o) {
   } else if (o.type === "gust") {
     o.x = laneX(o.z) + rand(-30, 30); o.push = (Math.random() < 0.5 ? -1 : 1) * rand(40, 70); o.r = 14;
     o.grp.position.set(o.x, terrainH(o.x, o.z) + 36, o.z);
+  } else if (o.type === "tornado") {
+    o.x = laneX(o.z) + rand(-50, 50); o.drift = rand(-9, 9); o.r = 16;
+    o.grp.position.set(o.x, gh, o.z);
+  } else if (o.type === "geyser") {
+    o.x = laneX(o.z) + rand(-30, 30); o.period = rand(2.4, 3.6); o.phase = rand(0, 1);
+    o.ventY = gh; o.colTop = gh + rand(64, 100); o.r = 7;
+    o.grp.position.set(o.x, gh, o.z);
+  } else if (o.type === "cablecar") {
+    o.x = 0; o.cableY = terrainH(0, o.z) + rand(30, 70); o.spd = rand(0.6, 1.2); o.phase = rand(0, TAU);
+    o.grp.userData.cable.position.y = o.cableY;
+    o.grp.position.set(0, 0, o.z);
+  } else if (o.type === "firework") {
+    o.x = laneX(o.z) + rand(-30, 30); o.by = gh + rand(28, 64); o.period = rand(2.0, 3.0); o.phase = rand(0, 1); o.r = 11;
+    o.grp.userData.burst.position.set(0, o.by - gh, 0);
+    o.grp.position.set(o.x, gh, o.z);
+  } else if (o.type === "raptor") {
+    o.x = laneX(o.z) + rand(-24, 24); o.y = gh + rand(30, 62); o.spd = rand(10, 16); o.phase = rand(0, TAU);
+    o.grp.position.set(o.x, o.y, o.z);
+  } else if (o.type === "debris") {
+    o.x = laneX(o.z) + rand(-34, 34); o.y = gh + rand(30, 72); o.drift = rand(-8, 8); o.r = 7;
+    o.grp.position.set(o.x, o.y, o.z);
   } else { // bird
     o.x = laneX(o.z) + rand(-30, 30); o.y = gh + rand(25, 60); o.drift = rand(-10, 10);
     o.grp.position.set(o.x, o.y, o.z);
@@ -927,13 +975,13 @@ function levelLength(n) {
 }
 let curLevelLen = 2200;
 const LEVELS = [
-  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, edge: 0x2f7fd6, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone", "spinbar"], gate: "wall",   tunnel: false },
-  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, edge: 0x2f7fd6, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.6, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon", "gust"],           gate: "wall",   tunnel: false },
-  { key: "canyon", name: "Canyon",     sky: 0xe9b27a, fog: 0xf0cfa0, ground: 0xb5713a, edge: 0x5a4a38, hs: 0xffe9cf, hg: 0x7a4a2a, amp: 1.4, build: false, fogNear: 280, fogFar: 1000, obs: ["rock", "bird"],                     gate: "canyon", tunnel: false },
-  { key: "desert", name: "Desert",     sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9a35a, edge: 0xcfa765, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.3, build: false, fogNear: 340, fogFar: 1150, obs: ["turbine", "gust", "rock"],          gate: "wall",   tunnel: false },
-  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, edge: 0x2f7fd6, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.8, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon", "turbine"],       gate: "mix",    tunnel: false },
-  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, edge: 0xbfe0f0, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.6, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird", "rock"],            gate: "wall",   tunnel: true  },
-  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, edge: 0x2f7fd6, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.0, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "drone", "laser", "spinbar"], gate: "mix",    tunnel: false },
+  { key: "city",   name: "Metropolis", sky: 0x9fd4ff, fog: 0xc3e6ff, ground: 0x67c267, edge: 0x2f7fd6, hs: 0xcfeaff, hg: 0x6a8b53, amp: 1.0, build: true,  fogNear: 350, fogFar: 1100, obs: ["crane", "pendulum", "drone", "spinbar", "firework"], gate: "wall",   tunnel: false },
+  { key: "coast",  name: "Coastline",  sky: 0x7ec8ff, fog: 0xbfe6ff, ground: 0xe9d59c, edge: 0x2f7fd6, hs: 0xd5efff, hg: 0xc2a96e, amp: 0.6, build: false, fogNear: 380, fogFar: 1250, obs: ["bird", "balloon", "gust", "cablecar"],     gate: "wall",   tunnel: false },
+  { key: "canyon", name: "Canyon",     sky: 0xe9b27a, fog: 0xf0cfa0, ground: 0xb5713a, edge: 0x5a4a38, hs: 0xffe9cf, hg: 0x7a4a2a, amp: 1.4, build: false, fogNear: 280, fogFar: 1000, obs: ["rock", "bird", "raptor"],               gate: "canyon", tunnel: false },
+  { key: "desert", name: "Desert",     sky: 0xffcf94, fog: 0xffe2bc, ground: 0xd9a35a, edge: 0xcfa765, hs: 0xffe9cf, hg: 0xb5703a, amp: 1.3, build: false, fogNear: 340, fogFar: 1150, obs: ["turbine", "gust", "rock", "tornado"],    gate: "wall",   tunnel: false },
+  { key: "meadow", name: "Meadows",    sky: 0xaee4ff, fog: 0xd2f0ff, ground: 0x79cf52, edge: 0x2f7fd6, hs: 0xdaf5ff, hg: 0x5fa83f, amp: 0.8, build: false, fogNear: 380, fogFar: 1300, obs: ["bird", "balloon", "turbine"],            gate: "mix",    tunnel: false },
+  { key: "glacier",name: "Glacier",    sky: 0xd2eaff, fog: 0xeefaff, ground: 0xeaf2f7, edge: 0xbfe0f0, hs: 0xf0f8ff, hg: 0xbcd0dd, amp: 1.6, build: false, fogNear: 320, fogFar: 1200, obs: ["blimp", "bird", "rock", "geyser"],         gate: "wall",   tunnel: true  },
+  { key: "skycity",name: "Sky City",   sky: 0xc3e2ff, fog: 0xe0eeff, ground: 0x86c2a0, edge: 0x2f7fd6, hs: 0xe8f4ff, hg: 0x6aa080, amp: 1.0, build: true,  fogNear: 350, fogFar: 1150, obs: ["blimp", "drone", "laser", "spinbar", "debris", "cablecar"], gate: "mix", tunnel: false },
 ];
 // Curated campaign: a finite arc of 12 named levels with a finale, then endless beyond it.
 // A trip around the world — each level is a place with its own little story.
@@ -1127,7 +1175,7 @@ function setupRun() {
   curLevelLen = levelLength(save.level);
   buildPlane(save.tier);
   yaw = 0; pitch = 0; roll = 0;
-  pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
+  pos.set(0, terrainH(0, 8) + 3.6, 8);   // resting on the launcher ramp
   vel.set(0, 0, 0);
   runPerk = save.perk || "none";
   boostMax = (1.1 + lvl("fuel") * 0.5) * (runPerk === "fuel" ? 1.5 : 1);
@@ -1465,6 +1513,47 @@ function updateFlight(dt) {
         vel.x += o.push * dt;
         if (Math.random() < 0.25) spawnBurst(pos.x - Math.sign(o.push) * 4, pos.y, pos.z, 0xdfe9f0, 1, 8, 0.5);
       }
+    } else if (o.type === "tornado") { // drags you toward its core; the eye is lethal
+      o.x += o.drift * dt; o.grp.position.x = o.x;
+      if (o.grp.userData.swirl) o.grp.userData.swirl.rotation.y += dt * 5;
+      const dx = pos.x - o.x, dz = pos.z - o.z, d2 = dx * dx + dz * dz;
+      if (d2 < o.r * o.r) {
+        vel.x += (o.x - pos.x) * 1.3 * dt; vel.y -= 8 * dt;
+        if (d2 < 26) crash();
+        else if (Math.random() < 0.2) spawnBurst(pos.x, pos.y, pos.z, 0xb59668, 1, 8, 0.6);
+      }
+    } else if (o.type === "geyser") { // erupting column — don't be in it at blast
+      const cyc = (flightTime + o.phase * o.period) % o.period;
+      const erupt = cyc < 0.6, col = o.grp.userData.col;
+      if (col) { const h = o.colTop - o.ventY; col.visible = erupt; col.scale.set(1, erupt ? h : 0.01, 1); col.position.y = erupt ? h / 2 : 0.1; }
+      const dx = pos.x - o.x, dz = pos.z - o.z;
+      if (cyc > 0.12 && cyc < 0.6 && dx * dx + dz * dz < o.r * o.r && pos.y < o.colTop && pos.y > o.ventY - 4) crash();
+    } else if (o.type === "cablecar") { // a cable + sliding gondola — go above or below the cable
+      const gx = Math.sin(flightTime * o.spd + o.phase) * (CORRIDOR - 12);
+      if (o.grp.userData.car) o.grp.userData.car.position.set(gx, o.cableY - 2, 0);
+      if (Math.abs(pos.z - o.z) < 2 + PH) {
+        if (Math.abs(pos.y - o.cableY) < 1.6 + PH * 0.4) crash();
+        const dx = pos.x - gx, dy = pos.y - (o.cableY - 2);
+        if (dx * dx + dy * dy < (4 + PH) * (4 + PH)) crash();
+      }
+    } else if (o.type === "firework") { // bursts on a timer — pass between blasts
+      const cyc = (flightTime + o.phase * o.period) % o.period;
+      const bursting = cyc < 0.4, burst = o.grp.userData.burst;
+      if (burst) { burst.visible = cyc < 0.55; const s = bursting ? o.r * (cyc / 0.4) : 0.6; burst.scale.set(s, s, s); }
+      if (bursting) {
+        const dx = pos.x - o.x, dy = pos.y - o.by, dz = pos.z - o.z, rr = o.r * Math.max(0.35, cyc / 0.4);
+        if (dx * dx + dy * dy + dz * dz < rr * rr) crash();
+      }
+    } else if (o.type === "raptor") { // swoops toward you, homing in
+      o.z -= o.spd * dt; o.x += (pos.x - o.x) * 0.6 * dt;
+      const ry = o.y + Math.sin(flightTime * 6 + o.phase) * 2;
+      o.grp.position.set(o.x, ry, o.z);
+      const dx = pos.x - o.x, dy = pos.y - ry, dz = pos.z - o.z, e = dx * dx + dy * dy + dz * dz;
+      if (e < 14) crash(); else if (!o.near && e < 70) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
+    } else if (o.type === "debris") { // tumbling chunks to weave through
+      o.x += o.drift * dt; o.grp.position.x = o.x; o.grp.rotation.x += dt * 1.2; o.grp.rotation.y += dt * 0.9;
+      const dx = pos.x - o.x, dy = pos.y - o.y, dz = pos.z - o.z, e = dx * dx + dy * dy + dz * dz;
+      if (e < (o.r + PH) * (o.r + PH)) crash(); else if (!o.near && e < (o.r + 8) * (o.r + 8)) { o.near = true; styleHit(pos.x, pos.y, pos.z); }
     } else { // crane — vertical mast + horizontal jib
       const ca = Math.cos(o.armRot), sa = Math.sin(o.armRot);
       // mast collision
@@ -1620,10 +1709,10 @@ function updateAim(dt) {
   camera.position.lerp(camGoal, Math.min(1, dt * 3));
   camLook.set(0, pos.y + 3, pos.z + 12);
   camera.lookAt(camLook);
-  // point the plane where it will launch (pitch + yaw), and pull it back into the sling by power
-  const av = (touch.down) ? aimValues() : { power: 0, lp: 0.6, ly: 0 };
+  // sit on the angled ramp at rest, then aim (pitch + yaw) and slide back down it as you pull
+  const av = (touch.down) ? aimValues() : { power: 0, lp: 0.30, ly: 0 };
   plane.rotation.set(-av.lp, av.ly, 0);
-  plane.position.set(pos.x, pos.y - av.power * 1.0, pos.z - av.power * 4.5);
+  plane.position.set(pos.x - av.power * 2 * av.ly, pos.y - av.power * 1.4, pos.z - av.power * 5);
   updateLauncher(dt, av.power);
   updateShadow();
   spinCoins(dt);
@@ -2085,8 +2174,9 @@ initSettingsUI();
 applyZone(zoneForLevel(save.level));
 curLevelLen = levelLength(save.level);
 buildPlane(save.tier);
-pos.set(0, terrainH(0, 6) + PLANE_GROUND, 6);
+pos.set(0, terrainH(0, 8) + 3.6, 8);   // resting on the launcher ramp
 plane.position.copy(pos);
+plane.rotation.set(-0.3, 0, 0);        // tilt to match the ramp on the title screen
 updateTerrain(0, 6);
 updateSea(0, 6);
 resetCoins();
